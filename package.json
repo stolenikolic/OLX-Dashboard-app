@@ -6,12 +6,33 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:feed": "tsx --env-file=.env.local scripts/sync-feed.ts",
+    "olx:explore": "tsx --env-file=.env.local scripts/olx-explore.ts",
+    "pricing:demo": "tsx --env-file=.env.local scripts/pricing-demo.ts",
+    "post:listing:dry": "tsx --env-file=.env.local scripts/post-listing-test.ts --dry-run",
+    "post:listing:publish": "tsx --env-file=.env.local scripts/post-listing-test.ts --publish",
+    "import:olx": "tsx --env-file=.env.local scripts/import-olx-listings.ts",
+    "job:list-active-profiles": "tsx scripts/job-list-active-profiles.ts",
+    "job:post-listings": "tsx --env-file=.env.local scripts/job-post-listings.ts",
+    "job:post-listings:dry": "tsx --env-file=.env.local scripts/job-post-listings.ts --dry-run --skip-import",
+    "job:post-listings:import": "tsx --env-file=.env.local scripts/job-post-listings.ts --import-only",
+    "job:list-price-due-profiles": "tsx scripts/job-list-price-due-profiles.ts",
+    "job:refresh-prices": "tsx --env-file=.env.local scripts/job-refresh-prices.ts",
+    "job:refresh-prices:dry": "tsx --env-file=.env.local scripts/job-refresh-prices.ts --dry-run",
+    "job:sync-stock": "tsx --env-file=.env.local scripts/job-sync-stock.ts",
+    "job:sync-stock:dry": "tsx --env-file=.env.local scripts/job-sync-stock.ts --dry-run",
+    "job:sync-feed": "tsx --env-file=.env.local scripts/job-sync-feed.ts",
+    "seed:test-profiles": "tsx --env-file=.env.local scripts/seed-test-profiles.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.2",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "undici": "^7.28.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +42,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

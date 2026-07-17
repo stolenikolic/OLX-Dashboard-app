@@ -1,0 +1,70 @@
+# =============================================================================
+# Sync Stock — sakrije oglase kad artikal nestane iz feed-a, unhide kad se vrati.
+# =============================================================================
+name: sync-stock
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Ručno: samo jedan profil (uuid)"
+        required: false
+
+concurrency:
+  group: sync-stock
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - id: list
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
+        run: npm run job:list-active-profiles
+
+  sync:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Stagger jitter (deterministički po profilu)
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+        run: |
+          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
+          SEED=$((16#$HASH))
+          DELAY=$((SEED % 900))
+          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
+          sleep "$DELAY"
+
+      - name: Sync stock for profile
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:sync-stock

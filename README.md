@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OLX Dashboard
 
-## Getting Started
+Multi-profil dashboard za automatizaciju OLX oglasa (TechZone i ostali profili).
 
-First, run the development server:
+## Lokalni razvoj
 
 ```bash
+npm install
+cp .env.example .env.local
+# popuni Supabase i FEED_URL
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Worker skripte
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Skripta | Opis |
+|---------|------|
+| `npm run job:sync-feed` | Sinhronizacija feed-a u Supabase |
+| `npm run job:sync-stock` | Hide/unhide po zalihi |
+| `npm run job:post-listings:dry` | Post oglasa (dry-run) |
+| `npm run job:refresh-prices:dry` | Osvježavanje cijena (dry-run) |
+| `npm run seed:test-profiles` | Dodaje 2 test profila (paused) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## GitHub Actions
 
-## Learn More
+Workflow-i u `.github/workflows/`:
 
-To learn more about Next.js, take a look at the following resources:
+- `sync-feed.yml` — dnevno 01:30 UTC
+- `post-listings.yml` — 02:00 UTC, matrix po profilu
+- `sync-stock.yml` — 02:00 UTC
+- `refresh-prices.yml` — 03:30 UTC
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### GitHub Secrets (repo Settings → Secrets)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Secret | Opis |
+|--------|------|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key |
+| `FEED_URL` | URL feed JSON-a |
+| `FEED_API_KEY` | (opcionalno) API ključ feed-a |
+| `FEED_AUTH_MODE` | `none` \| `apikey` \| `bearer` \| `both` |
 
-## Deploy on Vercel
+## Vercel deploy
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Postavi env varijable u Vercel projektu:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Varijabla | Opis |
+|-----------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Anon key |
+| `SUPABASE_SECRET_KEY` | Service role (server actions) |
+| `GITHUB_REPO` | `owner/repo` za workflow dispatch |
+| `GH_DISPATCH_TOKEN` | PAT sa `actions:write` |
+| `GITHUB_REF` | Branch (default `main`) |
+| `RESEND_API_KEY` | Resend API ključ |
+| `RESEND_FROM_EMAIL` | Pošiljalac emaila |
+| `ADMIN_NOTIFY_EMAIL` | Admin email za notifikacije |
+
+## Smoke test lanca
+
+```bash
+npm run job:sync-feed
+npm run job:sync-stock:dry
+npm run job:post-listings:dry
+npm run job:refresh-prices:dry
+```
+
+Provjeri `/logovi` u dashboardu nakon pokretanja.
+
+## Napomena
+
+- `POST_LISTINGS_MAX_PER_RUN` ostaje nizak (5) dok se ne uradi dedup i mapiranje kategorija.
+- Kredencijali su u bazi (plain text); enkripcija je planirana kasnije.

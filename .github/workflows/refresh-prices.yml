@@ -1,0 +1,76 @@
+# =============================================================================
+# Refresh Prices — obnavlja cijene po profilu.
+# =============================================================================
+name: refresh-prices
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Ručno: samo jedan profil (uuid)"
+        required: false
+      force:
+        description: "Ignoriši interval (osvježi sve odmah)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: refresh-prices
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - id: list
+        name: Profili kojima je istekao interval
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: npm run job:list-price-due-profiles
+
+  refresh:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Stagger jitter (deterministički po profilu)
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+        run: |
+          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
+          SEED=$((16#$HASH))
+          DELAY=$((SEED % 1800))
+          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
+          sleep "$DELAY"
+
+      - name: Refresh prices for profile
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:refresh-prices
