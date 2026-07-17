@@ -15,11 +15,13 @@ npm run dev
 
 | Skripta | Opis |
 |---------|------|
-| `npm run job:sync-feed` | Sinhronizacija feed-a u Supabase |
-| `npm run job:sync-stock` | Hide/unhide po zalihi |
+| `npm run job:sync-feed:local` | Sync feed-a (lokalno, čita `.env.local`) |
+| `npm run job:sync-stock:local` | Hide/unhide po zalihi (lokalno) |
 | `npm run job:post-listings:dry` | Post oglasa (dry-run) |
 | `npm run job:refresh-prices:dry` | Osvježavanje cijena (dry-run) |
 | `npm run seed:test-profiles` | Dodaje 2 test profila (paused) |
+
+Skripte bez `:local` (`job:sync-feed`, itd.) koriste env varijable iz okruženja — tako ih pokreće **GitHub Actions**.
 
 ## GitHub Actions
 
@@ -59,7 +61,7 @@ Postavi env varijable u Vercel projektu:
 ## Smoke test lanca
 
 ```bash
-npm run job:sync-feed
+npm run job:sync-feed:local
 npm run job:sync-stock:dry
 npm run job:post-listings:dry
 npm run job:refresh-prices:dry
