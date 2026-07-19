@@ -25,6 +25,9 @@
     "job:sync-stock": "tsx scripts/job-sync-stock.ts",
     "job:sync-stock:local": "tsx --env-file=.env.local scripts/job-sync-stock.ts",
     "job:sync-stock:dry": "tsx --env-file=.env.local scripts/job-sync-stock.ts --dry-run",
+    "job:delete-unmapped": "tsx scripts/job-delete-unmapped.ts",
+    "job:delete-unmapped:local": "tsx --env-file=.env.local scripts/job-delete-unmapped.ts",
+    "job:delete-unmapped:dry": "tsx --env-file=.env.local scripts/job-delete-unmapped.ts --dry-run",
     "job:sync-feed": "tsx scripts/job-sync-feed.ts",
     "job:sync-feed:local": "tsx --env-file=.env.local scripts/job-sync-feed.ts",
     "seed:test-profiles": "tsx --env-file=.env.local scripts/seed-test-profiles.ts"

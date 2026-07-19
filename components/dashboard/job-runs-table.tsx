@@ -8,6 +8,7 @@ const jobLabels: Record<Database["public"]["Enums"]["job_type"], string> = {
   post_listings: "Postavljanje",
   refresh_prices: "Cijene",
   sync_stock: "Zalihe",
+  delete_unmapped: "Brisanje nemapiranih",
 };
 
 const statusColors: Record<JobStatus, string> = {
@@ -15,6 +16,7 @@ const statusColors: Record<JobStatus, string> = {
   success: "text-emerald-600",
   partial: "text-amber-600",
   failed: "text-red-600",
+  cancelled: "text-zinc-500",
 };
 
 function formatDate(iso: string) {

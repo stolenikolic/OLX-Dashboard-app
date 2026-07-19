@@ -5,13 +5,32 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 
 import { requireAdmin, requireUser } from "@/lib/auth/dal";
-import { dispatchGitHubWorkflow, type WorkflowName } from "@/lib/github/dispatch";
+import {
+  fetchActivePostJob,
+  fetchJobLogs,
+  searchProductsForConnect,
+} from "@/lib/dashboard/queries";
+import {
+  cancelGitHubWorkflowRun,
+  dispatchGitHubWorkflow,
+  githubActionsWorkflowUrl,
+  type WorkflowName,
+} from "@/lib/github/dispatch";
+import { importListingsFromCsv } from "@/lib/listings/import-from-csv";
+import {
+  countCandidateProducts,
+  countPostedToday,
+} from "@/lib/listings/post-queue";
 import {
   createClientForProfileId,
+  createClientForProfileRecord,
+  loadProfileForWorker,
 } from "@/lib/listings/profile-client";
+import { syncUnmappedListings } from "@/lib/listings/sync-unmapped";
 import { calculateProductPrice } from "@/lib/pricing/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { requestJobCancel } from "@/lib/workers/job-log";
 import type { Database } from "@/types/database";
 
 async function getListingForAction(listingId: string) {
@@ -158,6 +177,350 @@ export async function dispatchWorkflowAction(
   const result = await dispatchGitHubWorkflow(workflow, inputs);
   if (!result.ok) throw new Error(result.message);
   return result.message;
+}
+
+export type CategoryPostPreview = {
+  totalInFeed: number;
+  alreadyListed: number;
+  candidates: number;
+  willPost: number;
+  postedToday: number;
+  dailyLimit: number;
+  remaining: number;
+  categorySlug: string;
+  categoryName: string;
+};
+
+async function assertCategoryPostable(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  categoryId: string,
+): Promise<{ slug: string; name: string }> {
+  const { data: cat, error: catError } = await admin
+    .from("categories")
+    .select("id, internal_slug, internal_name, olx_category_id, is_postable")
+    .eq("id", categoryId)
+    .single();
+
+  if (catError || !cat) {
+    throw new Error("Kategorija nije pronađena.");
+  }
+  if (!cat.olx_category_id || !cat.is_postable) {
+    throw new Error("Kategorija nije spremna za postavljanje (mapiranje / postable).");
+  }
+
+  const { data: priority } = await admin
+    .from("profile_category_priority")
+    .select("enabled")
+    .eq("profile_id", profileId)
+    .eq("category_id", categoryId)
+    .maybeSingle();
+
+  if (priority && !priority.enabled) {
+    throw new Error("Kategorija je isključena (enabled=false) za ovaj profil.");
+  }
+
+  // Ako nema priority reda, default je enabled samo ako je mapirana (kao u formi).
+  if (!priority && cat.olx_category_id == null) {
+    throw new Error("Kategorija nije omogućena za ovaj profil.");
+  }
+
+  return { slug: cat.internal_slug, name: cat.internal_name };
+}
+
+export async function previewCategoryPostAction(
+  profileId: string,
+  categoryId: string,
+): Promise<CategoryPostPreview> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const cat = await assertCategoryPostable(admin, profileId, categoryId);
+  const profile = await loadProfileForWorker(admin, profileId);
+
+  const [stats, postedToday] = await Promise.all([
+    countCandidateProducts(admin, profileId, categoryId),
+    countPostedToday(admin, profileId),
+  ]);
+
+  const dailyLimit = profile.daily_post_limit;
+  const remaining = Math.max(0, dailyLimit - postedToday);
+
+  return {
+    totalInFeed: stats.totalInFeed,
+    alreadyListed: stats.alreadyListed,
+    candidates: stats.candidates,
+    willPost: Math.min(stats.candidates, remaining),
+    postedToday,
+    dailyLimit,
+    remaining,
+    categorySlug: cat.slug,
+    categoryName: cat.name,
+  };
+}
+
+export async function dispatchCategoryPostAction(
+  profileId: string,
+  categoryId: string,
+): Promise<{ message: string; actionsUrl: string | null }> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  await assertCategoryPostable(admin, profileId, categoryId);
+
+  const supabase = await createClient();
+  const active = await fetchActivePostJob(supabase, profileId);
+  if (active) {
+    throw new Error(
+      "Postavljanje već radi za ovaj profil. Sačekaj završetak ili zaustavi job.",
+    );
+  }
+
+  const result = await dispatchGitHubWorkflow("post-listings", {
+    profile_id: profileId,
+    category_id: categoryId,
+    skip_import: "true",
+  });
+  if (!result.ok) throw new Error(result.message);
+
+  return {
+    message: result.message,
+    actionsUrl: githubActionsWorkflowUrl("post-listings"),
+  };
+}
+
+export async function cancelPostJobAction(
+  profileId: string,
+): Promise<{ message: string }> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const supabase = await createClient();
+  const active = await fetchActivePostJob(supabase, profileId);
+
+  if (!active) {
+    throw new Error("Nema aktivnog post_listings joba za ovaj profil.");
+  }
+
+  await requestJobCancel(admin, active.id);
+
+  let ghMessage = "";
+  if (active.github_run_id != null) {
+    const gh = await cancelGitHubWorkflowRun(active.github_run_id);
+    ghMessage = gh.ok
+      ? ` ${gh.message}`
+      : ` (GitHub cancel: ${gh.message})`;
+  }
+
+  return {
+    message: `Zaustavljanje zatraženo.${ghMessage}`,
+  };
+}
+
+export async function getActivePostJobAction(profileId: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  return fetchActivePostJob(supabase, profileId);
+}
+
+export async function getJobLogsAction(
+  jobRunId: string,
+  afterCreatedAt?: string,
+) {
+  await requireAdmin();
+  const supabase = await createClient();
+  return fetchJobLogs(supabase, jobRunId, { afterCreatedAt });
+}
+
+export async function refreshUnmappedListingsAction(profileId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const profile = await loadProfileForWorker(admin, profileId);
+  const username = profile.olx_username ?? profile.olx_login_email;
+  if (!username) {
+    throw new Error("Profil nema OLX username — postavi ga u podešavanjima.");
+  }
+
+  const client = await createClientForProfileRecord(profile);
+  const result = await syncUnmappedListings(
+    admin,
+    client,
+    profileId,
+    username,
+  );
+
+  revalidatePath("/oglasi");
+  return result;
+}
+
+export async function searchFeedProductsAction(query: string) {
+  await requireAdmin();
+  const supabase = await createClient();
+  return searchProductsForConnect(supabase, query);
+}
+
+export async function connectUnmappedListingAction(
+  unmappedId: string,
+  productId: string,
+) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: unmapped, error: unmappedError } = await admin
+    .from("unmapped_listings")
+    .select("id, profile_id, olx_listing_id, title, price")
+    .eq("id", unmappedId)
+    .single();
+
+  if (unmappedError || !unmapped) {
+    throw new Error("Nemapirani oglas nije pronađen.");
+  }
+
+  const { data: product, error: productError } = await admin
+    .from("products")
+    .select("id, feed_uuid, title")
+    .eq("id", productId)
+    .single();
+
+  if (productError || !product) {
+    throw new Error("Feed artikal nije pronađen.");
+  }
+
+  const { data: conflictByOlx } = await admin
+    .from("listings")
+    .select("id, product_id")
+    .eq("profile_id", unmapped.profile_id)
+    .eq("olx_listing_id", unmapped.olx_listing_id)
+    .maybeSingle();
+
+  if (conflictByOlx && conflictByOlx.product_id !== productId) {
+    await admin.from("listings").delete().eq("id", conflictByOlx.id);
+  }
+
+  const { error: upsertError } = await admin.from("listings").upsert(
+    {
+      profile_id: unmapped.profile_id,
+      product_id: product.id,
+      feed_uuid: product.feed_uuid,
+      olx_listing_id: unmapped.olx_listing_id,
+      status: "active",
+      posted_price: unmapped.price,
+      last_published_at: new Date().toISOString(),
+      error: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "profile_id,product_id" },
+  );
+
+  if (upsertError) {
+    throw new Error(`Povezivanje nije uspjelo: ${upsertError.message}`);
+  }
+
+  await admin.from("unmapped_listings").delete().eq("id", unmappedId);
+
+  revalidatePath("/oglasi");
+  revalidatePath("/");
+}
+
+export async function hideUnmappedListingAction(unmappedId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: unmapped, error } = await admin
+    .from("unmapped_listings")
+    .select("id, profile_id, olx_listing_id")
+    .eq("id", unmappedId)
+    .single();
+
+  if (error || !unmapped) {
+    throw new Error("Nemapirani oglas nije pronađen.");
+  }
+
+  const client = await createClientForProfileId(unmapped.profile_id);
+  await client.hideListing(unmapped.olx_listing_id);
+  await admin.from("unmapped_listings").delete().eq("id", unmappedId);
+
+  revalidatePath("/oglasi");
+}
+
+export async function finishUnmappedListingAction(unmappedId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: unmapped, error } = await admin
+    .from("unmapped_listings")
+    .select("id, profile_id, olx_listing_id")
+    .eq("id", unmappedId)
+    .single();
+
+  if (error || !unmapped) {
+    throw new Error("Nemapirani oglas nije pronađen.");
+  }
+
+  const client = await createClientForProfileId(unmapped.profile_id);
+  await client.finishListing(unmapped.olx_listing_id);
+  await admin.from("unmapped_listings").delete().eq("id", unmappedId);
+
+  revalidatePath("/oglasi");
+}
+
+export async function deleteAllUnmappedAction(profileId: string) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { count, error } = await admin
+    .from("unmapped_listings")
+    .select("*", { count: "exact", head: true })
+    .eq("profile_id", profileId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!count || count === 0) {
+    throw new Error("Nema nemapiranih oglasa za brisanje.");
+  }
+
+  const result = await dispatchGitHubWorkflow("delete-unmapped", {
+    profile_id: profileId,
+  });
+  if (!result.ok) throw new Error(result.message);
+  return result.message;
+}
+
+export async function importExistingListingsCsvAction(
+  profileId: string,
+  formData: FormData,
+) {
+  await requireAdmin();
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Odaberi CSV fajl.");
+  }
+
+  if (file.size > 20 * 1024 * 1024) {
+    throw new Error("CSV je prevelik (max 20 MB).");
+  }
+
+  const csvText = await file.text();
+  const admin = createAdminClient();
+  const profile = await loadProfileForWorker(admin, profileId);
+  const username = profile.olx_username ?? profile.olx_login_email;
+  if (!username) {
+    throw new Error("Profil nema OLX username — postavi ga u podešavanjima.");
+  }
+
+  const client = await createClientForProfileRecord(profile);
+  const result = await importListingsFromCsv(
+    admin,
+    client,
+    profileId,
+    username,
+    csvText,
+  );
+
+  revalidatePath(`/profili/${profileId}/podesavanja`);
+  revalidatePath("/oglasi");
+  revalidatePath("/");
+
+  return result;
 }
 
 export async function updateProfileSettingsAction(

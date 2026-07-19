@@ -17,13 +17,20 @@ export type PostListingOptions = {
 };
 
 export type PostListingResult =
-  | { ok: true; dryRun: true; payload: CreateListingPayload; price: number }
+  | {
+      ok: true;
+      dryRun: true;
+      payload: CreateListingPayload;
+      price: number;
+      title: string;
+    }
   | {
       ok: true;
       dryRun: false;
       olxListingId: number;
       price: number;
       listingRowId: string;
+      title: string;
     }
   | { ok: false; reason: "already_posted"; olxListingId?: number | null };
 
@@ -156,7 +163,13 @@ export async function postProductListing(
   });
 
   if (dryRun) {
-    return { ok: true, dryRun: true, payload, price: finalPrice };
+    return {
+      ok: true,
+      dryRun: true,
+      payload,
+      price: finalPrice,
+      title: product.title,
+    };
   }
 
   const created = await client.createListing(payload);
@@ -228,5 +241,6 @@ export async function postProductListing(
     olxListingId,
     price: finalPrice,
     listingRowId: row.id,
+    title: product.title,
   };
 }

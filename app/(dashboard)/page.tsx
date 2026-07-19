@@ -69,7 +69,7 @@ export default async function DashboardPage() {
             href="/oglasi"
             className="text-sm font-medium text-teal-600 hover:underline"
           >
-            Svi oglasi →
+            Katalog (feed) →
           </Link>
         </div>
         {profiles.length === 0 ? (

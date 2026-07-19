@@ -1,0 +1,35 @@
+# =============================================================================
+# Delete Unmapped — briše sve nemapirane OLX oglase za jedan profil (DELETE API).
+# Pokreće se ručno iz dashboarda (workflow_dispatch).
+# =============================================================================
+name: delete-unmapped
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Profil (uuid) — obavezno"
+        required: true
+
+concurrency:
+  group: delete-unmapped-${{ github.event.inputs.profile_id }}
+  cancel-in-progress: false
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Delete unmapped listings for profile
+        env:
+          PROFILE_ID: ${{ github.event.inputs.profile_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:delete-unmapped

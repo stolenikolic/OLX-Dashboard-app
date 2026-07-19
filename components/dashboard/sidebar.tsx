@@ -4,7 +4,7 @@ import { logout } from "@/app/auth/actions";
 
 const links = [
   { href: "/", label: "Pregled" },
-  { href: "/oglasi", label: "Oglasi" },
+  { href: "/oglasi", label: "Katalog" },
   { href: "/logovi", label: "Logovi" },
 ];
 

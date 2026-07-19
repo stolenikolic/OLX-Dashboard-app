@@ -36,9 +36,17 @@ export default async function ProfileCategoriesPage({ params }: PageProps) {
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/" className="text-sm text-teal-600 hover:underline">
-          ← Pregled
-        </Link>
+        <div className="flex flex-wrap gap-3 text-sm">
+          <Link href="/" className="text-teal-600 hover:underline">
+            ← Pregled
+          </Link>
+          <Link
+            href={`/oglasi?profil=${id}`}
+            className="text-teal-600 hover:underline"
+          >
+            Oglasi profila
+          </Link>
+        </div>
         <h1 className="mt-2 text-2xl font-bold text-zinc-900">
           Prioritet kategorija — {profile.name}
         </h1>
@@ -50,6 +58,7 @@ export default async function ProfileCategoriesPage({ params }: PageProps) {
           internal_slug: c.internal_slug,
           internal_name: c.internal_name,
           olx_category_id: c.olx_category_id,
+          is_postable: c.is_postable,
         }))}
         existing={existing}
       />

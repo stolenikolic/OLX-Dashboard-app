@@ -201,8 +201,10 @@ inače (inherit)                          -> kategorija.import_flag
 ### 7.2 Sprječavanje duplikata
 - Baza vodi vezu `feed_product_id (uuid) → olx_listing_id` **po profilu** (`listings`).
 - Ako veza postoji → artikal se **preskače**.
-- **Postojeći (ručno postavljeni) oglasi:** ubacuju se kroz **upload CSV/JSON po profilu**
-  (`olx_listing_id ↔ ipon_id`), čime se popunjava dedup tabela prije prvog automatskog ciklusa.
+- **Postojeći (ručno postavljeni) oglasi:** admin upload CSV-a u podešavanjima profila
+  (`product_id` = feed UUID → `olx_id`), čime se popunjava dedup tabela (`listings`) prije
+  automatskog ciklusa. Prazan feed ID se preskače; OLX ID mora pripadati tom profilu;
+  konflikti se prepisuju (zadnji red u CSV-u pobjeđuje).
 
 ### 7.3 Tok kreiranja oglasa (OLX API)
 1. `POST /listings` → kreira **DRAFT** (title, opis, cijena, state, listing_type, atributi…).
@@ -331,16 +333,23 @@ IP adresa, identitet naloga, ponašanje, `device_name`/`User-Agent`. Mjere:
 - Posljednje greške/upozorenja za njegov profil.
 
 ### 14.4 Katalog / oglasi
-- **Grid kartica** (slika, naslov, cijena, kategorija, status) + filteri i pretraga.
-- **Po artiklu:** 3-state prekidač **"uvoz"** (`inherit`/`on`/`off`).
+- **Admin — Katalog (`/oglasi` bez profila):** svi artikli iz **feed-a** (`products`), grid +
+  pretraga/kategorija, **60 po stranici** s paginacijom. Nije vezano za profile.
+- **Admin — oglasi profila:** ulaz sa početne (kartica profila / broj aktivnih) →
+  `/oglasi?profil=[id]`. Naslov sa imenom profila, dugmad za podešavanja/kategorije,
+  grid listings + status/pretraga/kategorija, 60 + paginacija, iste ručne akcije.
+- **Radnik:** vidi samo oglase svog profila (RLS); nema multi-profil kataloga.
+- **Po artiklu (feed/listing):** 3-state prekidač **"uvoz"** (`inherit`/`on`/`off`).
 - **Ručne akcije nad oglasom:** Postavi sad / Sakrij / Završi / Obnovi cijenu; ručni **override
   cijene** (mimo formule); **isključi iz automatizacije** (blacklist).
+- **Profile-switcher (header):** samo default profil za pokretanje jobova — ne filtrira oglase.
 
 ### 14.5 Podešavanja (po profilu)
 - `KURS`, `kurs_uvoz`; prioritet/redoslijed kategorija.
 - Šablon opisa; OLX kredencijali (login/token); proxy podaci.
 - Dnevni limit; raspored/termin izvršavanja; pauziraj/aktiviraj profil.
 - Random ±% raspon cijene.
+- **Upload CSV** za mapiranje postojećih oglasa (`product_id` feed UUID → `olx_id`).
 
 ### 14.6 Admin — mapiranja i marže (globalno)
 - Mapiranje: interni slug → OLX kategorija; spec → OLX atribut + vrijednosti.
@@ -400,7 +409,9 @@ IP adresa, identitet naloga, ponašanje, `device_name`/`User-Agent`. Mjere:
 ## 18. Otvorene stavke / pretpostavke
 - **Mehanizam primanja poruka** (polling vs webhook) — potvrditi prije Faze 2.
 - **Tačan OLX endpoint za slanje poruka** — dokumentovati prije Faze 2.
-- **Format CSV/JSON** za import postojećih oglasa i `ipon_feed_map` — finalizovati pri implementaciji.
+- **Format CSV** za import postojećih oglasa: `product_id,olx_id` (feed UUID → OLX listing ID),
+  header opcionalan — implementirano u podešavanjima profila.
+- **Format** za `ipon_feed_map` — finalizovati pri implementaciji.
 
 ---
 

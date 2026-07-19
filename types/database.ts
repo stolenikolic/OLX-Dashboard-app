@@ -211,7 +211,9 @@ export type Database = {
       }
       job_runs: {
         Row: {
+          cancel_requested: boolean
           finished_at: string | null
+          github_run_id: number | null
           id: string
           items_failed: number
           items_processed: number
@@ -223,7 +225,9 @@ export type Database = {
           summary: string | null
         }
         Insert: {
+          cancel_requested?: boolean
           finished_at?: string | null
+          github_run_id?: number | null
           id?: string
           items_failed?: number
           items_processed?: number
@@ -235,7 +239,9 @@ export type Database = {
           summary?: string | null
         }
         Update: {
+          cancel_requested?: boolean
           finished_at?: string | null
+          github_run_id?: number | null
           id?: string
           items_failed?: number
           items_processed?: number
@@ -621,6 +627,53 @@ export type Database = {
         }
         Relationships: []
       }
+      unmapped_listings: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string | null
+          olx_category_id: number | null
+          olx_listing_id: number
+          price: number | null
+          profile_id: string
+          synced_at: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          olx_category_id?: number | null
+          olx_listing_id: number
+          price?: number | null
+          profile_id: string
+          synced_at?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          olx_category_id?: number | null
+          olx_listing_id?: number
+          price?: number | null
+          profile_id?: string
+          synced_at?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unmapped_listings_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -632,8 +685,13 @@ export type Database = {
     Enums: {
       app_role: "admin" | "worker"
       import_override: "inherit" | "on" | "off"
-      job_status: "running" | "success" | "partial" | "failed"
-      job_type: "sync_feed" | "post_listings" | "refresh_prices" | "sync_stock"
+      job_status: "running" | "success" | "partial" | "failed" | "cancelled"
+      job_type:
+        | "sync_feed"
+        | "post_listings"
+        | "refresh_prices"
+        | "sync_stock"
+        | "delete_unmapped"
       listing_status:
         | "draft"
         | "active"
@@ -773,8 +831,14 @@ export const Constants = {
     Enums: {
       app_role: ["admin", "worker"],
       import_override: ["inherit", "on", "off"],
-      job_status: ["running", "success", "partial", "failed"],
-      job_type: ["sync_feed", "post_listings", "refresh_prices", "sync_stock"],
+      job_status: ["running", "success", "partial", "failed", "cancelled"],
+      job_type: [
+        "sync_feed",
+        "post_listings",
+        "refresh_prices",
+        "sync_stock",
+        "delete_unmapped",
+      ],
       listing_status: [
         "draft",
         "active",

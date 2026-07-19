@@ -1,5 +1,6 @@
 # =============================================================================
 # Post Listings — postavlja nove oglase po profilu (bez duplikata).
+# Ručno: opcionalno profile_id + category_id (jedna kategorija, skip import).
 # =============================================================================
 name: post-listings
 
@@ -11,6 +12,13 @@ on:
       profile_id:
         description: "Ručno: pokreni samo za jedan profil (uuid)"
         required: false
+      category_id:
+        description: "Ručno: samo jedna kategorija (uuid); skip import"
+        required: false
+      skip_import:
+        description: 'Preskoči OLX import ("true" / "false")'
+        required: false
+        default: ""
 
 concurrency:
   group: post-listings
@@ -40,7 +48,7 @@ jobs:
   post:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -53,7 +61,8 @@ jobs:
           cache: "npm"
       - run: npm ci
 
-      - name: Stagger jitter (deterministički po profilu)
+      - name: Stagger jitter (preskoči za category run)
+        if: ${{ github.event.inputs.category_id == '' || github.event.inputs.category_id == null }}
         env:
           PROFILE_ID: ${{ matrix.profile.id }}
         run: |
@@ -66,7 +75,8 @@ jobs:
       - name: Post listings for profile
         env:
           PROFILE_ID: ${{ matrix.profile.id }}
-          POST_LISTINGS_MAX_PER_RUN: "5"
+          CATEGORY_ID: ${{ github.event.inputs.category_id }}
+          SKIP_IMPORT: ${{ github.event.inputs.skip_import }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npm run job:post-listings

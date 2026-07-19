@@ -11,6 +11,7 @@ import type {
   OlxLoginResponse,
   OlxModel,
   OlxPaginatedResponse,
+  OlxPublicUser,
   OlxUser,
   OlxUserListing,
   UpdateListingPayload,
@@ -305,12 +306,32 @@ export class OlxClient {
     });
   }
 
+  async deleteListing(listingId: number): Promise<{ message?: string }> {
+    return this.request<{ message?: string }>(`/listings/${listingId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  async getUser(username: string): Promise<OlxPublicUser> {
+    const res = await this.request<{ data: OlxPublicUser }>(
+      `/users/${encodeURIComponent(username)}`,
+    );
+    return res.data;
+  }
+
   async getUserListings(
     username: string,
     page = 1,
     selectedCategoryId?: number,
+    perPage = 1000,
+    sortOrder: "asc" | "desc" = "desc",
   ): Promise<OlxPaginatedResponse<OlxUserListing>> {
-    const params = new URLSearchParams({ page: String(page) });
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+      sort_order: sortOrder,
+    });
     if (selectedCategoryId != null) {
       params.set("selected_category", String(selectedCategoryId));
     }

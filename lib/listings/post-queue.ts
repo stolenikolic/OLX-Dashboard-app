@@ -88,58 +88,126 @@ export async function countPostedToday(
   return count ?? 0;
 }
 
+const PAGE_SIZE = 1000;
+
+/** Svi product_id iz listings za profil (paginacija — PostgREST default limit je 1000). */
 export async function loadListedProductIds(
   admin: Admin,
   profileId: string,
 ): Promise<Set<string>> {
-  const { data, error } = await admin
-    .from("listings")
-    .select("product_id, status")
-    .eq("profile_id", profileId)
-    .not("product_id", "is", null);
-
-  if (error) {
-    throw new Error(`Učitavanje listings nije uspjelo: ${error.message}`);
-  }
-
   const ids = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.product_id && row.status !== "failed") {
-      ids.add(row.product_id);
+  let from = 0;
+
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("listings")
+      .select("product_id, status")
+      .eq("profile_id", profileId)
+      .not("product_id", "is", null)
+      .order("product_id", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`Učitavanje listings nije uspjelo: ${error.message}`);
     }
+
+    const rows = data ?? [];
+    for (const row of rows) {
+      if (row.product_id && row.status !== "failed") {
+        ids.add(row.product_id);
+      }
+    }
+
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
+
+  return ids;
+}
+
+async function loadEligibleProductIds(
+  admin: Admin,
+  categoryId: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  let from = 0;
+
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("products")
+      .select("id")
+      .eq("category_id", categoryId)
+      .eq("in_feed", true)
+      .eq("blacklisted", false)
+      .not("main_image_url", "is", null)
+      .order("title", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`Učitavanje kandidata nije uspjelo: ${error.message}`);
+    }
+
+    const rows = data ?? [];
+    for (const row of rows) ids.push(row.id);
+
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
   return ids;
 }
 
 export async function findCandidateProductIds(
   admin: Admin,
-  profileId: string,
+  _profileId: string,
   categoryId: string,
   listedProductIds: Set<string>,
   limit: number,
 ): Promise<string[]> {
-  const { data, error } = await admin
-    .from("products")
-    .select("id")
-    .eq("category_id", categoryId)
-    .eq("in_feed", true)
-    .eq("blacklisted", false)
-    .not("main_image_url", "is", null)
-    .order("title")
-    .limit(limit * 3);
-
-  if (error) {
-    throw new Error(`Učitavanje kandidata nije uspjelo: ${error.message}`);
-  }
-
+  const eligible = await loadEligibleProductIds(admin, categoryId);
   const candidates: string[] = [];
-  for (const row of data ?? []) {
-    if (listedProductIds.has(row.id)) continue;
-    candidates.push(row.id);
+  for (const id of eligible) {
+    if (listedProductIds.has(id)) continue;
+    candidates.push(id);
     if (candidates.length >= limit) break;
   }
-
   return candidates;
+}
+
+export type CategoryCandidateStats = {
+  /** U feedu, eligible (in_feed, nije blacklist, ima sliku). */
+  totalInFeed: number;
+  /** Od toga već ima listing za profil. */
+  alreadyListed: number;
+  /** Još nisu listed — mogu se postaviti (prije dnevnog limita). */
+  candidates: number;
+};
+
+/** Statistika kandidata u kategoriji (isti filteri kao post). */
+export async function countCandidateProducts(
+  admin: Admin,
+  profileId: string,
+  categoryId: string,
+): Promise<CategoryCandidateStats> {
+  const [listedProductIds, eligible] = await Promise.all([
+    loadListedProductIds(admin, profileId),
+    loadEligibleProductIds(admin, categoryId),
+  ]);
+
+  let alreadyListed = 0;
+  let candidates = 0;
+  for (const id of eligible) {
+    if (listedProductIds.has(id)) alreadyListed++;
+    else candidates++;
+  }
+
+  return {
+    totalInFeed: eligible.length,
+    alreadyListed,
+    candidates,
+  };
 }
 
 export function sleep(ms: number): Promise<void> {

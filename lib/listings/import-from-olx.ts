@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { fetchAllUserListings } from "@/lib/listings/fetch-user-listings";
 import {
   buildTitleIndex,
   findProductForOlxListing,
@@ -9,8 +10,6 @@ import type { OlxClient } from "@/lib/olx/client";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
-
-const PAGE_DELAY_MS = 350;
 
 async function getMappedOlxCategoryIds(admin: Admin): Promise<number[]> {
   const { data, error } = await admin
@@ -37,33 +36,92 @@ export type ImportFromOlxResult = {
   unmatched: number;
 };
 
-async function loadProductsForMatching(admin: Admin): Promise<TitleMatchProduct[]> {
-  const { data, error } = await admin
-    .from("products")
-    .select(
-      `
-      id,
-      feed_uuid,
-      title,
-      categories (
-        olx_category_id
-      )
-    `,
-    )
-    .eq("in_feed", true);
+const PAGE_SIZE = 1000;
 
-  if (error) {
-    throw new Error(`Učitavanje proizvoda za import nije uspjelo: ${error.message}`);
+async function loadProductsForMatching(admin: Admin): Promise<TitleMatchProduct[]> {
+  const products: TitleMatchProduct[] = [];
+  let from = 0;
+
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("products")
+      .select(
+        `
+        id,
+        feed_uuid,
+        title,
+        categories (
+          olx_category_id
+        )
+      `,
+      )
+      .eq("in_feed", true)
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(
+        `Učitavanje proizvoda za import nije uspjelo: ${error.message}`,
+      );
+    }
+
+    const rows = data ?? [];
+    for (const row of rows) {
+      products.push({
+        id: row.id,
+        feed_uuid: row.feed_uuid,
+        title: row.title,
+        olxCategoryId: row.categories?.olx_category_id
+          ? Number(row.categories.olx_category_id)
+          : null,
+      });
+    }
+
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    feed_uuid: row.feed_uuid,
-    title: row.title,
-    olxCategoryId: row.categories?.olx_category_id
-      ? Number(row.categories.olx_category_id)
-      : null,
-  }));
+  return products;
+}
+
+async function loadExistingListingMaps(
+  admin: Admin,
+  profileId: string,
+): Promise<{
+  byProduct: Map<string | null, number | null>;
+  byOlxId: Set<number>;
+}> {
+  const byProduct = new Map<string | null, number | null>();
+  const byOlxId = new Set<number>();
+  let from = 0;
+
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("listings")
+      .select("product_id, olx_listing_id")
+      .eq("profile_id", profileId)
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(
+        `Učitavanje postojećih listings nije uspjelo: ${error.message}`,
+      );
+    }
+
+    const rows = data ?? [];
+    for (const row of rows) {
+      byProduct.set(row.product_id, row.olx_listing_id);
+      if (row.olx_listing_id != null) byOlxId.add(row.olx_listing_id);
+    }
+
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return { byProduct, byOlxId };
 }
 
 export async function importListingsFromOlx(
@@ -93,22 +151,11 @@ export async function importListingsFromOlx(
     `Import samo mapiranih kategorija: ${mappedCategories.join(", ")}`,
   );
 
-  const { data: existingRows } = await admin
-    .from("listings")
-    .select("product_id, olx_listing_id")
-    .eq("profile_id", profileId);
-
-  const byProduct = new Map(
-    (existingRows ?? []).map((r) => [r.product_id, r.olx_listing_id]),
-  );
-  const byOlxId = new Set(
-    (existingRows ?? [])
-      .map((r) => r.olx_listing_id)
-      .filter((id): id is number => id != null),
+  const { byProduct, byOlxId } = await loadExistingListingMaps(
+    admin,
+    profileId,
   );
 
-  let pages = 0;
-  let olxTotal = 0;
   let matched = 0;
   let inserted = 0;
   let updated = 0;
@@ -127,85 +174,67 @@ export async function importListingsFromOlx(
     `Proizvoda bez zapisa u listings: ${pendingProductIds.size} (mapirane kategorije)`,
   );
 
-  let page = 1;
-  let lastPage = 1;
+  const olxListings = await fetchAllUserListings(client, username);
+  const olxTotal = olxListings.size;
+  const pages = Math.ceil(olxTotal / 1000);
 
-  do {
-    const res = await client.getUserListings(username, page);
-    olxTotal += res.data.length;
-    lastPage = res.meta.last_page;
-    pages++;
+  for (const olx of olxListings.values()) {
+    if (byOlxId.has(olx.id)) {
+      skipped++;
+      continue;
+    }
 
-    for (const olx of res.data) {
-      if (byOlxId.has(olx.id)) {
-        skipped++;
-        continue;
-      }
+    const product = findProductForOlxListing(
+      index,
+      olx.title,
+      olx.category_id,
+      byCategory,
+    );
 
-      const product = findProductForOlxListing(
-        index,
-        olx.title,
-        olx.category_id,
-        byCategory,
-      );
+    if (!product || !mappedSet.has(product.olxCategoryId ?? -1)) {
+      unmatched++;
+      continue;
+    }
 
-      if (!product || !mappedSet.has(product.olxCategoryId ?? -1)) {
-        unmatched++;
-        continue;
-      }
+    matched++;
 
-      matched++;
-
-      const existingOlxId = byProduct.get(product.id);
-      if (existingOlxId === olx.id) {
-        skipped++;
-        pendingProductIds.delete(product.id);
-        continue;
-      }
-
-      const { error } = await admin.from("listings").upsert(
-        {
-          profile_id: profileId,
-          product_id: product.id,
-          feed_uuid: product.feed_uuid,
-          olx_listing_id: olx.id,
-          status: olx.status === "active" ? "active" : "draft",
-          posted_price: olx.price,
-          last_published_at: new Date().toISOString(),
-          error: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "profile_id,product_id" },
-      );
-
-      if (error) {
-        skipped++;
-        continue;
-      }
-
-      byProduct.set(product.id, olx.id);
-      byOlxId.add(olx.id);
+    const existingOlxId = byProduct.get(product.id);
+    if (existingOlxId === olx.id) {
+      skipped++;
       pendingProductIds.delete(product.id);
-      if (existingOlxId == null) inserted++;
-      else updated++;
+      continue;
     }
 
-    if (page % 25 === 0 || page === lastPage || pendingProductIds.size === 0) {
-      console.log(
-        `Import: stranica ${page}/${lastPage} (matched=${matched}, novi=${inserted}, preostalo=${pendingProductIds.size})`,
-      );
+    const { error } = await admin.from("listings").upsert(
+      {
+        profile_id: profileId,
+        product_id: product.id,
+        feed_uuid: product.feed_uuid,
+        olx_listing_id: olx.id,
+        status: olx.status === "active" ? "active" : "draft",
+        posted_price: olx.price,
+        last_published_at: new Date().toISOString(),
+        error: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "profile_id,product_id" },
+    );
+
+    if (error) {
+      skipped++;
+      continue;
     }
 
-    if (pendingProductIds.size === 0) {
-      console.log("Svi mapirani proizvodi pronađeni na OLX-u — raniji izlaz.");
-      break;
-    }
+    byProduct.set(product.id, olx.id);
+    byOlxId.add(olx.id);
+    pendingProductIds.delete(product.id);
+    if (existingOlxId == null) inserted++;
+    else updated++;
+  }
 
-    page++;
-    if (page <= lastPage) {
-      await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
-    }
-  } while (page <= lastPage);
+  console.log(
+    `Import gotov: matched=${matched}, novi=${inserted}, preostalo=${pendingProductIds.size}`,
+  );
 
   return {
     pages,

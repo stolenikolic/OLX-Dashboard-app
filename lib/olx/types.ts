@@ -8,6 +8,20 @@ export type OlxUser = {
   [key: string]: unknown;
 };
 
+/** Javni /users/:username odgovor (shop profil). */
+export type OlxPublicUser = {
+  id: number;
+  type: string;
+  username: string;
+  avatar: string | null;
+  shop?: {
+    package?: string | null;
+    business_name?: string | null;
+    active?: boolean;
+  } | null;
+  [key: string]: unknown;
+};
+
 export type OlxLoginResponse = {
   token: string;
   user: OlxUser;
@@ -121,6 +135,7 @@ export type OlxUserListing = {
   status: string;
   state?: string;
   listing_type?: string;
+  image_url?: string | null;
   [key: string]: unknown;
 };
 

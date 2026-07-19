@@ -21,6 +21,7 @@ export function ProfileCard({
   profile: ProfileSummary;
   isAdmin?: boolean;
 }) {
+  const listingsHref = `/oglasi?profil=${profile.id}`;
   const limitPct =
     profile.daily_post_limit > 0
       ? Math.min(
@@ -32,54 +33,62 @@ export function ProfileCard({
       : 0;
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="font-semibold text-zinc-900">{profile.name}</h3>
-          {profile.olx_username && (
-            <p className="text-sm text-zinc-500">@{profile.olx_username}</p>
-          )}
+    <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:border-teal-200 hover:shadow-md">
+      <Link href={listingsHref} className="block">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="font-semibold text-zinc-900 hover:text-teal-700">
+              {profile.name}
+            </h3>
+            {profile.olx_username && (
+              <p className="text-sm text-zinc-500">@{profile.olx_username}</p>
+            )}
+          </div>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[profile.status]}`}
+          >
+            {statusLabels[profile.status]}
+          </span>
         </div>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[profile.status]}`}
-        >
-          {statusLabels[profile.status]}
-        </span>
-      </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt className="text-zinc-500">Aktivni oglasi</dt>
-          <dd className="text-lg font-semibold text-zinc-900">
-            {profile.activeListings}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-zinc-500">Danas postavljeno</dt>
-          <dd className="text-lg font-semibold text-zinc-900">
-            {profile.postedToday}
-            <span className="text-sm font-normal text-zinc-400">
-              {" "}
-              / {profile.daily_post_limit}
-            </span>
-          </dd>
-        </div>
-      </dl>
+        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <dt className="text-zinc-500">Aktivni oglasi</dt>
+            <dd className="text-lg font-semibold text-teal-700">
+              {profile.activeListings}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-zinc-500">Danas postavljeno</dt>
+            <dd className="text-lg font-semibold text-zinc-900">
+              {profile.postedToday}
+              <span className="text-sm font-normal text-zinc-400">
+                {" "}
+                / {profile.daily_post_limit}
+              </span>
+            </dd>
+          </div>
+        </dl>
 
-      <div className="mt-3">
-        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
-          <div
-            className="h-full rounded-full bg-teal-500 transition-all"
-            style={{ width: `${limitPct}%` }}
-          />
+        <div className="mt-3">
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
+            <div
+              className="h-full rounded-full bg-teal-500 transition-all"
+              style={{ width: `${limitPct}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-zinc-400">
+            Dnevni limit: {limitPct}%
+          </p>
         </div>
-        <p className="mt-1 text-xs text-zinc-400">
-          Dnevni limit: {limitPct}%
+
+        <p className="mt-3 text-sm font-medium text-teal-600">
+          Otvori oglase →
         </p>
-      </div>
+      </Link>
 
       {isAdmin && (
-        <div className="mt-4 flex flex-wrap gap-2 text-xs">
+        <div className="mt-3 flex flex-wrap gap-3 border-t border-zinc-100 pt-3 text-xs">
           <Link
             href={`/profili/${profile.id}/podesavanja`}
             className="text-teal-600 hover:underline"

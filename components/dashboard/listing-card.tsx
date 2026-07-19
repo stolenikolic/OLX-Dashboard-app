@@ -6,7 +6,13 @@ import { ListingActions } from "@/components/dashboard/listing-actions";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import type { ListingRow } from "@/lib/dashboard/queries";
 
-export function ListingCard({ listing }: { listing: ListingRow }) {
+export function ListingCard({
+  listing,
+  hideProfileName = false,
+}: {
+  listing: ListingRow;
+  hideProfileName?: boolean;
+}) {
   const olxUrl = listing.olx_listing_id
     ? `https://olx.ba/artikal/${listing.olx_listing_id}`
     : null;
@@ -38,7 +44,9 @@ export function ListingCard({ listing }: { listing: ListingRow }) {
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start justify-between gap-2">
           <StatusBadge status={listing.status} />
-          <span className="text-xs text-zinc-400">{listing.profileName}</span>
+          {!hideProfileName && (
+            <span className="text-xs text-zinc-400">{listing.profileName}</span>
+          )}
         </div>
 
         <h3 className="mt-2 line-clamp-2 text-sm font-medium text-zinc-900">
