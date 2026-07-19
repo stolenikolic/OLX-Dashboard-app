@@ -1,5 +1,17 @@
+import { appendFileSync } from "fs";
+
 import { listPriceDueProfiles } from "@/lib/listings/list-price-due-profiles";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";
+
+function writeGithubOutput(lines: string[]) {
+  for (const line of lines) {
+    console.log(line);
+  }
+  const out = process.env.GITHUB_OUTPUT;
+  if (out) {
+    appendFileSync(out, `${lines.join("\n")}\n`);
+  }
+}
 
 async function main() {
   const admin = createJobAdminClient();
@@ -11,8 +23,18 @@ async function main() {
     force,
   });
 
+  const onlyId = process.env.ONLY_PROFILE_ID?.trim();
+  if (onlyId && profiles.length === 0) {
+    throw new Error(
+      `Nema profila za refresh s id=${onlyId} (provjeri status / force flag).`,
+    );
+  }
+
   const matrix = { profile: profiles };
-  console.log(`matrix=${JSON.stringify(matrix)}`);
+  writeGithubOutput([
+    `has_profiles=${profiles.length > 0}`,
+    `matrix=${JSON.stringify(matrix)}`,
+  ]);
 }
 
 main().catch((err) => {

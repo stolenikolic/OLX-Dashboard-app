@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
+      has_profiles: ${{ steps.list.outputs.has_profiles }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,6 +48,7 @@ jobs:
 
   post:
     needs: prepare
+    if: ${{ needs.prepare.outputs.has_profiles == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
