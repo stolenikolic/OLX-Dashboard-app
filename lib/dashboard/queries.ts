@@ -168,22 +168,25 @@ export async function fetchListings(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  let productIds: string[] | null = null;
-  if (options?.search?.trim() || options?.categorySlug) {
-    let productQuery = supabase.from("products").select("id");
-    if (options?.search?.trim()) {
-      productQuery = productQuery.ilike(
-        "title",
-        `%${options.search.trim()}%`,
-      );
-    }
-    if (options?.categorySlug) {
-      productQuery = productQuery.eq("category_slug", options.categorySlug);
-    }
-    const { data: products } = await productQuery.limit(2000);
-    productIds = (products ?? []).map((p) => p.id);
-    if (productIds.length === 0) return emptyPage(page, pageSize);
-  }
+  const search = options?.search?.trim() || "";
+  const categorySlug = options?.categorySlug?.trim() || "";
+  // Inner join kad filtriramo po proizvodu — izbjegava ogromni .in(product_id, …).
+  const productsJoin =
+    search || categorySlug
+      ? `products!inner (
+        title,
+        main_image_url,
+        category_slug,
+        in_feed,
+        import_override
+      )`
+      : `products (
+        title,
+        main_image_url,
+        category_slug,
+        in_feed,
+        import_override
+      )`;
 
   let query = supabase
     .from("listings")
@@ -198,21 +201,18 @@ export async function fetchListings(
       last_published_at,
       error,
       profiles ( name ),
-      products (
-        title,
-        main_image_url,
-        category_slug,
-        in_feed,
-        import_override
-      )
+      ${productsJoin}
     `,
       { count: "exact" },
     )
     .order("updated_at", { ascending: false })
     .range(from, to);
 
-  if (productIds) {
-    query = query.in("product_id", productIds);
+  if (categorySlug) {
+    query = query.eq("products.category_slug", categorySlug);
+  }
+  if (search) {
+    query = query.ilike("products.title", `%${search}%`);
   }
 
   if (options?.status && options.status !== "all") {
@@ -227,7 +227,10 @@ export async function fetchListings(
   }
 
   const { data, error, count } = await query;
-  if (error || !data) return emptyPage(page, pageSize);
+  if (error || !data) {
+    console.error("fetchListings:", error?.message ?? "nema podataka");
+    return emptyPage(page, pageSize);
+  }
 
   const total = count ?? 0;
   return {

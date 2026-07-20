@@ -40,7 +40,7 @@ export function buildListingPayload(input: ListingBuildInput): CreateListingPayl
     state: "new",
     price_by_agreement: false,
     quantity: 1,
-    available: true,
+    available: false,
     attributes: input.attributes,
   };
 }
