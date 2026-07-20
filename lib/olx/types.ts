@@ -103,6 +103,7 @@ export type UpdateListingPayload = {
   price?: number;
   title?: string;
   description?: string;
+  available?: boolean;
 };
 
 export type OlxListingDetail = {
@@ -136,7 +137,46 @@ export type OlxUserListing = {
   state?: string;
   listing_type?: string;
   image_url?: string | null;
+  refresh_available?: boolean;
+  /** Unix timestamp (seconds) — listing date / last bump on OLX. */
+  date?: number;
   [key: string]: unknown;
+};
+
+export type OlxRefreshLimits = {
+  free_limit: number;
+  free_count: number;
+  paid_count: number;
+  listing_count: number;
+};
+
+export type OlxConversationSender = {
+  id: number;
+  type?: string;
+  username?: string;
+  avatar?: string;
+  avg_response_time?: number;
+};
+
+export type OlxConversationListing = {
+  id: number;
+  title?: string;
+  price?: number;
+  status?: string;
+  refresh_available?: boolean;
+  created_at?: number;
+  category?: { id: number; name?: string; slug?: string };
+};
+
+export type OlxConversation = {
+  id: number;
+  seen?: boolean;
+  sender?: OlxConversationSender;
+  last_message?: { id?: number; type?: string; content?: string };
+  listing?: OlxConversationListing | null;
+  unread_messages?: number;
+  created_at: number;
+  updated_at: number;
 };
 
 export type OlxPaginatedMeta = {

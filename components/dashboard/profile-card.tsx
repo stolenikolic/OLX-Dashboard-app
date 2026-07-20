@@ -68,6 +68,18 @@ export function ProfileCard({
               </span>
             </dd>
           </div>
+          {profile.refreshFreeLimit != null && (
+            <div className="col-span-2">
+              <dt className="text-zinc-500">Besplatna obnavljanja (mjesec)</dt>
+              <dd className="text-lg font-semibold text-sky-700">
+                {profile.refreshFreeCount ?? 0}
+                <span className="text-sm font-normal text-zinc-400">
+                  {" "}
+                  / {profile.refreshFreeLimit}
+                </span>
+              </dd>
+            </div>
+          )}
         </dl>
 
         <div className="mt-3">

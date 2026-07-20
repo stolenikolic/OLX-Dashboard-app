@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import {
   finishListingAction,
   hideListingAction,
+  refreshListingBumpAction,
   refreshListingPriceAction,
   unhideListingAction,
 } from "@/lib/dashboard/actions";
@@ -29,6 +30,29 @@ export function ListingActions({
     });
   }
 
+  function bumpListing() {
+    startTransition(async () => {
+      try {
+        await refreshListingBumpAction(listingId, false);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Greška";
+        if (message.includes("besplatnih") || message.includes("naplatu")) {
+          const ok = window.confirm(
+            `${message}\n\nŽeliš li ipak obnoviti uz naplatu?`,
+          );
+          if (!ok) return;
+          try {
+            await refreshListingBumpAction(listingId, true);
+          } catch (err2) {
+            alert(err2 instanceof Error ? err2.message : "Greška");
+          }
+          return;
+        }
+        alert(message);
+      }
+    });
+  }
+
   const btn =
     "rounded border px-2 py-1 text-xs disabled:opacity-50";
 
@@ -43,6 +67,14 @@ export function ListingActions({
             className={`${btn} border-teal-200 text-teal-700 hover:bg-teal-50`}
           >
             Obnovi cijenu
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={bumpListing}
+            className={`${btn} border-sky-200 text-sky-700 hover:bg-sky-50`}
+          >
+            Obnovi na OLX-u
           </button>
           <button
             type="button"

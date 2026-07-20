@@ -9,6 +9,8 @@ const jobLabels: Record<Database["public"]["Enums"]["job_type"], string> = {
   refresh_prices: "Cijene",
   sync_stock: "Zalihe",
   delete_unmapped: "Brisanje nemapiranih",
+  sync_conversations: "Upiti (chat)",
+  refresh_listings: "Obnavljanje oglasa",
 };
 
 const statusColors: Record<JobStatus, string> = {

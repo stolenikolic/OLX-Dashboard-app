@@ -1,0 +1,75 @@
+# =============================================================================
+# Refresh Listings — demand-driven bump oglasa (besplatni limit).
+# Pokreće se nakon sync-conversations.
+# =============================================================================
+name: refresh-listings
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Ručno: samo jedan profil (uuid)"
+        required: false
+
+concurrency:
+  group: refresh-listings
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      has_profiles: ${{ steps.list.outputs.has_profiles }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - id: list
+        name: Lista aktivnih profila
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
+        run: npm run job:list-active-profiles
+
+  refresh:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.has_profiles == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Stagger jitter (deterministički po profilu)
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+        run: |
+          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
+          SEED=$((16#$HASH))
+          DELAY=$((SEED % 1800))
+          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
+          sleep "$DELAY"
+
+      - name: Refresh listings for profile
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REFRESH_LISTINGS_MAX_PER_RUN: ${{ secrets.REFRESH_LISTINGS_MAX_PER_RUN }}
+        run: npm run job:refresh-listings

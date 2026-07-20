@@ -23,6 +23,15 @@ export type Database = {
           pdv_factor: number
           random_pct_max: number
           random_pct_min: number
+          refresh_enabled: boolean
+          refresh_w_inquiry: number
+          refresh_w_category: number
+          refresh_w_value: number
+          refresh_w_staleness: number
+          refresh_inquiry_window_days: number
+          refresh_inquiry_halflife_days: number
+          refresh_staleness_cap_days: number
+          refresh_unmapped_penalty: number
         }
         Insert: {
           daily_post_limit?: number
@@ -32,6 +41,15 @@ export type Database = {
           pdv_factor?: number
           random_pct_max?: number
           random_pct_min?: number
+          refresh_enabled?: boolean
+          refresh_w_inquiry?: number
+          refresh_w_category?: number
+          refresh_w_value?: number
+          refresh_w_staleness?: number
+          refresh_inquiry_window_days?: number
+          refresh_inquiry_halflife_days?: number
+          refresh_staleness_cap_days?: number
+          refresh_unmapped_penalty?: number
         }
         Update: {
           daily_post_limit?: number
@@ -41,8 +59,79 @@ export type Database = {
           pdv_factor?: number
           random_pct_max?: number
           random_pct_min?: number
+          refresh_enabled?: boolean
+          refresh_w_inquiry?: number
+          refresh_w_category?: number
+          refresh_w_value?: number
+          refresh_w_staleness?: number
+          refresh_inquiry_window_days?: number
+          refresh_inquiry_halflife_days?: number
+          refresh_staleness_cap_days?: number
+          refresh_unmapped_penalty?: number
         }
         Relationships: []
+      }
+      conversations: {
+        Row: {
+          id: string
+          profile_id: string
+          olx_conversation_id: number
+          buyer_id: number | null
+          buyer_username: string | null
+          olx_listing_id: number | null
+          listing_title: string | null
+          olx_category_id: number | null
+          last_message_type: string | null
+          last_message_at: string | null
+          inquiry_at: string | null
+          unread_count: number
+          is_system: boolean
+          synced_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          olx_conversation_id: number
+          buyer_id?: number | null
+          buyer_username?: string | null
+          olx_listing_id?: number | null
+          listing_title?: string | null
+          olx_category_id?: number | null
+          last_message_type?: string | null
+          last_message_at?: string | null
+          inquiry_at?: string | null
+          unread_count?: number
+          is_system?: boolean
+          synced_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          olx_conversation_id?: number
+          buyer_id?: number | null
+          buyer_username?: string | null
+          olx_listing_id?: number | null
+          listing_title?: string | null
+          olx_category_id?: number | null
+          last_message_type?: string | null
+          last_message_at?: string | null
+          inquiry_at?: string | null
+          unread_count?: number
+          is_system?: boolean
+          synced_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       attribute_mappings: {
         Row: {
@@ -270,12 +359,16 @@ export type Database = {
           id: string
           last_price_sync_at: string | null
           last_published_at: string | null
+          last_refreshed_at: string | null
+          last_score_at: string | null
           manual_price: number | null
           olx_listing_id: number | null
           posted_price: number | null
           price_origin: Database["public"]["Enums"]["offer_origin"] | null
           product_id: string | null
           profile_id: string
+          refresh_available: boolean
+          refresh_score: number | null
           status: Database["public"]["Enums"]["listing_status"]
           updated_at: string
           was_import: boolean
@@ -287,12 +380,16 @@ export type Database = {
           id?: string
           last_price_sync_at?: string | null
           last_published_at?: string | null
+          last_refreshed_at?: string | null
+          last_score_at?: string | null
           manual_price?: number | null
           olx_listing_id?: number | null
           posted_price?: number | null
           price_origin?: Database["public"]["Enums"]["offer_origin"] | null
           product_id?: string | null
           profile_id: string
+          refresh_available?: boolean
+          refresh_score?: number | null
           status?: Database["public"]["Enums"]["listing_status"]
           updated_at?: string
           was_import?: boolean
@@ -304,12 +401,16 @@ export type Database = {
           id?: string
           last_price_sync_at?: string | null
           last_published_at?: string | null
+          last_refreshed_at?: string | null
+          last_score_at?: string | null
           manual_price?: number | null
           olx_listing_id?: number | null
           posted_price?: number | null
           price_origin?: Database["public"]["Enums"]["offer_origin"] | null
           product_id?: string | null
           profile_id?: string
+          refresh_available?: boolean
+          refresh_score?: number | null
           status?: Database["public"]["Enums"]["listing_status"]
           updated_at?: string
           was_import?: boolean
@@ -569,6 +670,10 @@ export type Database = {
           olx_username: string | null
           price_refresh_days: number
           proxy_url: string | null
+          refresh_free_count: number | null
+          refresh_free_limit: number | null
+          refresh_limits_synced_at: string | null
+          refresh_overrides: Json | null
           schedule_cron: string | null
           status: Database["public"]["Enums"]["profile_status"]
           suspended_until: string | null
@@ -594,6 +699,10 @@ export type Database = {
           olx_username?: string | null
           price_refresh_days?: number
           proxy_url?: string | null
+          refresh_free_count?: number | null
+          refresh_free_limit?: number | null
+          refresh_limits_synced_at?: string | null
+          refresh_overrides?: Json | null
           schedule_cron?: string | null
           status?: Database["public"]["Enums"]["profile_status"]
           suspended_until?: string | null
@@ -619,6 +728,10 @@ export type Database = {
           olx_username?: string | null
           price_refresh_days?: number
           proxy_url?: string | null
+          refresh_free_count?: number | null
+          refresh_free_limit?: number | null
+          refresh_limits_synced_at?: string | null
+          refresh_overrides?: Json | null
           schedule_cron?: string | null
           status?: Database["public"]["Enums"]["profile_status"]
           suspended_until?: string | null
@@ -626,6 +739,54 @@ export type Database = {
           user_agent?: string | null
         }
         Relationships: []
+      }
+      refresh_events: {
+        Row: {
+          id: string
+          profile_id: string
+          listing_id: string | null
+          olx_listing_id: number
+          refreshed_at: string
+          score_at_time: number | null
+          was_manual: boolean
+          was_paid: boolean
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          listing_id?: string | null
+          olx_listing_id: number
+          refreshed_at?: string
+          score_at_time?: number | null
+          was_manual?: boolean
+          was_paid?: boolean
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          listing_id?: string | null
+          olx_listing_id?: number
+          refreshed_at?: string
+          score_at_time?: number | null
+          was_manual?: boolean
+          was_paid?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refresh_events_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refresh_events_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       unmapped_listings: {
         Row: {
@@ -692,6 +853,8 @@ export type Database = {
         | "refresh_prices"
         | "sync_stock"
         | "delete_unmapped"
+        | "sync_conversations"
+        | "refresh_listings"
       listing_status:
         | "draft"
         | "active"
@@ -838,6 +1001,8 @@ export const Constants = {
         "refresh_prices",
         "sync_stock",
         "delete_unmapped",
+        "sync_conversations",
+        "refresh_listings",
       ],
       listing_status: [
         "draft",

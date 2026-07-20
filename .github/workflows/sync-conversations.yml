@@ -1,0 +1,83 @@
+# =============================================================================
+# Sync Conversations — povlači OLX inbox (upiti) za scoring refresha.
+# =============================================================================
+name: sync-conversations
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Ručno: samo jedan profil (uuid)"
+        required: false
+      backfill:
+        description: 'Backfill N mjeseci ("12") — prazno = inkrementalno'
+        required: false
+        default: ""
+
+concurrency:
+  group: sync-conversations
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      has_profiles: ${{ steps.list.outputs.has_profiles }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - id: list
+        name: Lista aktivnih profila
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
+        run: npm run job:list-active-profiles
+
+  sync:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.has_profiles == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Stagger jitter (deterministički po profilu)
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+        run: |
+          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
+          SEED=$((16#$HASH))
+          DELAY=$((SEED % 1800))
+          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
+          sleep "$DELAY"
+
+      - name: Sync conversations for profile
+        env:
+          PROFILE_ID: ${{ matrix.profile.id }}
+          BACKFILL_MONTHS: ${{ github.event.inputs.backfill }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -n "$BACKFILL_MONTHS" ]; then
+            npm run job:sync-conversations -- --backfill
+          else
+            npm run job:sync-conversations
+          fi

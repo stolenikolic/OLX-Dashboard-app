@@ -10,6 +10,8 @@ const jobs: Array<{ workflow: WorkflowName; label: string }> = [
   { workflow: "sync-stock", label: "Sync stock" },
   { workflow: "post-listings", label: "Post oglasi" },
   { workflow: "refresh-prices", label: "Refresh cijene" },
+  { workflow: "sync-conversations", label: "Sinhronizuj upite" },
+  { workflow: "refresh-listings", label: "Obnovi oglase" },
 ];
 
 export function RunJobsPanel({

@@ -4,6 +4,7 @@ import type {
   OlxBrand,
   OlxCategory,
   OlxCategoryFindResult,
+  OlxConversation,
   OlxListingCreated,
   OlxListingDetail,
   OlxListingImage,
@@ -12,6 +13,7 @@ import type {
   OlxModel,
   OlxPaginatedResponse,
   OlxPublicUser,
+  OlxRefreshLimits,
   OlxUser,
   OlxUserListing,
   UpdateListingPayload,
@@ -345,6 +347,51 @@ export class OlxClient {
       "/listing-limits",
     );
     return res.data;
+  }
+
+  async getRefreshLimits(): Promise<OlxRefreshLimits> {
+    return this.request<OlxRefreshLimits>("/listing/refresh/limits");
+  }
+
+  async refreshListing(
+    listingId: number,
+  ): Promise<{ message?: string }> {
+    return this.request<{ message?: string }>(
+      `/listings/${listingId}/refresh`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  /**
+   * Authenticated user listings — includes `refresh_available`
+   * (unlike the public search API).
+   */
+  async getUserListingsAuthed(
+    username: string,
+    page = 1,
+    perPage = 1000,
+    sortOrder: "asc" | "desc" = "desc",
+  ): Promise<OlxPaginatedResponse<OlxUserListing>> {
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+      sort_order: sortOrder,
+    });
+    return this.request<OlxPaginatedResponse<OlxUserListing>>(
+      `/users/${encodeURIComponent(username)}/listings?${params}`,
+    );
+  }
+
+  /** Web API conversations inbox (same Bearer token as api.olx.ba). */
+  async getConversations(
+    page = 1,
+  ): Promise<{ data: OlxConversation[] }> {
+    return this.request<{ data: OlxConversation[] }>(
+      `https://olx.ba/api/conversations?page=${page}`,
+    );
   }
 }
 

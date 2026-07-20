@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { transformSpecValue } from "@/lib/listings/transform-spec";
+import {
+  transformSpecValue,
+  withDerivedSpecs,
+} from "@/lib/listings/transform-spec";
 import type { OlxListingAttribute } from "@/lib/olx/types";
 import type { Database } from "@/types/database";
 
@@ -46,9 +49,10 @@ export async function mapProductAttributes(
 
   const mappings = (data ?? []) as MappingRow[];
   const attributes: OlxListingAttribute[] = [];
+  const effectiveSpecs = withDerivedSpecs(specs);
 
   for (const m of mappings) {
-    const raw = specs[m.spec_key];
+    const raw = effectiveSpecs[m.spec_key];
     const feedStr = raw != null ? String(raw).trim() : "";
 
     const valueMap = new Map(

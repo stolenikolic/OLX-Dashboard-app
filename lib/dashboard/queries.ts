@@ -12,6 +12,8 @@ export type ProfileSummary = {
   daily_post_limit: number;
   activeListings: number;
   postedToday: number;
+  refreshFreeLimit: number | null;
+  refreshFreeCount: number | null;
 };
 
 export type ListingRow = {
@@ -75,7 +77,9 @@ export async function fetchProfileSummaries(
 ): Promise<ProfileSummary[]> {
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("id, name, status, olx_username, daily_post_limit")
+    .select(
+      "id, name, status, olx_username, daily_post_limit, refresh_free_limit, refresh_free_count",
+    )
     .order("name");
 
   if (error || !profiles) return [];
@@ -106,6 +110,8 @@ export async function fetchProfileSummaries(
       daily_post_limit: profile.daily_post_limit,
       activeListings: activeRes.count ?? 0,
       postedToday: todayRes.count ?? 0,
+      refreshFreeLimit: profile.refresh_free_limit,
+      refreshFreeCount: profile.refresh_free_count,
     });
   }
 

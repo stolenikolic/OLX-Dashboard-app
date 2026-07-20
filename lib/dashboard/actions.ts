@@ -16,6 +16,7 @@ import {
   githubActionsWorkflowUrl,
   type WorkflowName,
 } from "@/lib/github/dispatch";
+import { bumpListingManual } from "@/lib/listings/refresh-listings";
 import { importListingsFromCsv } from "@/lib/listings/import-from-csv";
 import {
   countCandidateProducts,
@@ -129,6 +130,33 @@ export async function refreshListingPriceAction(listingId: string) {
 
   revalidatePath("/oglasi");
   revalidatePath("/");
+}
+
+/**
+ * Ručno bumpanje oglasa na OLX-u (PUT /listings/:id/refresh).
+ * Ako nema besplatnog budžeta, `allowPaid` mora biti true (korisnik potvrdio naplatu).
+ */
+export async function refreshListingBumpAction(
+  listingId: string,
+  allowPaid = false,
+): Promise<{ wasPaid: boolean }> {
+  await requireUser();
+  const listing = await getListingForAction(listingId);
+  const admin = createAdminClient();
+  const client = await createClientForProfileId(listing.profile_id);
+
+  const result = await bumpListingManual(
+    admin,
+    client,
+    listing.profile_id,
+    listing.id,
+    listing.olx_listing_id!,
+    allowPaid,
+  );
+
+  revalidatePath("/oglasi");
+  revalidatePath("/");
+  return result;
 }
 
 export async function finishListingAction(listingId: string) {

@@ -3,7 +3,9 @@ export type WorkflowName =
   | "post-listings"
   | "refresh-prices"
   | "sync-stock"
-  | "delete-unmapped";
+  | "delete-unmapped"
+  | "sync-conversations"
+  | "refresh-listings";
 
 function githubRepoParts():
   | { ok: true; owner: string; repoName: string; token: string }
