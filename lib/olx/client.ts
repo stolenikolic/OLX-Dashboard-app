@@ -10,6 +10,7 @@ import type {
   OlxListingImage,
   OlxListingLimits,
   OlxLoginResponse,
+  OlxMessage,
   OlxModel,
   OlxPaginatedResponse,
   OlxPublicUser,
@@ -74,7 +75,7 @@ export class OlxClient {
     return this.token;
   }
 
-  private baseHeaders(): Record<string, string> {
+  protected baseHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/json",
     };
@@ -90,7 +91,7 @@ export class OlxClient {
     return headers;
   }
 
-  private async getDispatcher(): Promise<unknown> {
+  protected async getDispatcher(): Promise<unknown> {
     if (!this.proxyUrl) return undefined;
     if (this.dispatcher) return this.dispatcher;
     // undici ships with Node; import dynamically to avoid bundling/types coupling.
@@ -391,6 +392,113 @@ export class OlxClient {
   ): Promise<{ data: OlxConversation[] }> {
     return this.request<{ data: OlxConversation[] }>(
       `https://olx.ba/api/conversations?page=${page}`,
+    );
+  }
+
+  /** Messages in a conversation. page=1 = newest first (15/page). */
+  async getConversationMessages(
+    conversationId: number,
+    page = 1,
+  ): Promise<{ data: OlxMessage[] }> {
+    return this.request<{ data: OlxMessage[] }>(
+      `https://olx.ba/api/conversations/${conversationId}/messages?page=${page}`,
+    );
+  }
+
+  async sendTextMessage(input: {
+    conversationId: number;
+    receiverId: number;
+    content: string;
+    sender: Record<string, unknown>;
+  }): Promise<OlxMessage> {
+    return this.request<OlxMessage>("https://olx.ba/api/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: input.content,
+        status: "none",
+        type: "text",
+        created_at: Math.floor(Date.now() / 1000),
+        sender: input.sender,
+        receiver_id: input.receiverId,
+        conversation_id: input.conversationId,
+      }),
+    });
+  }
+
+  /**
+   * Multipart image send — separate from request() so we do not set Content-Type
+   * (browser/undici sets the multipart boundary).
+   */
+  async sendImageMessage(input: {
+    conversationId: number;
+    receiverId: number;
+    image: Uint8Array | Blob;
+    filename?: string;
+    contentType?: string;
+  }): Promise<OlxMessage> {
+    const url = "https://olx.ba/api/message";
+    const dispatcher = await this.getDispatcher();
+    const fd = new FormData();
+    const blob =
+      input.image instanceof Blob
+        ? input.image
+        : new Blob([Buffer.from(input.image)], {
+            type: input.contentType ?? "image/jpeg",
+          });
+    fd.append("image", blob, input.filename ?? "image.jpg");
+    fd.append("type", "image");
+    fd.append("conversation_id", String(input.conversationId));
+    fd.append("receiver_id", String(input.receiverId));
+
+    const headers = this.baseHeaders();
+    // Do NOT set Content-Type — FormData boundary must be automatic.
+
+    const requestInit: RequestInitWithDispatcher = {
+      method: "POST",
+      headers,
+      body: fd,
+    };
+    if (dispatcher) {
+      requestInit.dispatcher = dispatcher;
+    }
+
+    const response = await this.requestWithRetry(url, requestInit);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new OlxApiError(
+        `OLX API ${response.status} ${response.statusText} za /message (image)`,
+        response.status,
+        text.slice(0, 500),
+      );
+    }
+    return (text ? JSON.parse(text) : null) as OlxMessage;
+  }
+
+  /** Mark conversation as seen/read on OLX. */
+  async markConversationSeen(conversationId: number): Promise<void> {
+    await this.request<unknown>(
+      `https://olx.ba/api/conversations/${conversationId}/seen`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+  }
+
+  /**
+   * Save conversation on OLX (POST .../save).
+   * Unsave endpoint nije potvrđen — lokalno ažuriranje za saved=false.
+   */
+  async saveConversation(conversationId: number): Promise<void> {
+    await this.request<unknown>(
+      `https://olx.ba/api/conversations/${conversationId}/save`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
     );
   }
 }

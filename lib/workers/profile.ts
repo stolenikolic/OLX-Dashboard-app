@@ -22,6 +22,7 @@ export type ProfileForWorker = {
   olx_client_token_enc: string | null;
   olx_bearer_token: string | null;
   olx_token_expires_at: string | null;
+  olx_user_id: number | null;
   device_name: string | null;
   user_agent: string | null;
   proxy_url: string | null;
@@ -42,6 +43,7 @@ const PROFILE_SELECT = `
   olx_client_token_enc,
   olx_bearer_token,
   olx_token_expires_at,
+  olx_user_id,
   device_name,
   user_agent,
   proxy_url,
@@ -127,6 +129,29 @@ async function saveTokenCache(
     .eq("id", profileId);
 }
 
+export async function ensureOlxUserId(
+  admin: Admin,
+  profile: ProfileForWorker,
+  client: OlxClient,
+): Promise<number> {
+  if (profile.olx_user_id != null && profile.olx_user_id > 0) {
+    return profile.olx_user_id;
+  }
+
+  const me = await client.me();
+  const olxUserId = me.id;
+  await admin
+    .from("profiles")
+    .update({
+      olx_user_id: olxUserId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", profile.id);
+
+  profile.olx_user_id = olxUserId;
+  return olxUserId;
+}
+
 function buildClientConfig(
   profile: ProfileForWorker,
   identity: { device_name: string; user_agent: string },
@@ -187,7 +212,17 @@ export async function createClientForProfile(
       buildClientConfig(profile, identity, profile.olx_bearer_token),
     );
     try {
-      await cached.me();
+      const me = await cached.me();
+      if (profile.olx_user_id == null && me?.id) {
+        await admin
+          .from("profiles")
+          .update({
+            olx_user_id: me.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", profile.id);
+        profile.olx_user_id = me.id;
+      }
       return cached;
     } catch {
       console.warn(
@@ -209,6 +244,18 @@ export async function createClientForProfile(
   const token = client.getToken();
   if (token) {
     await saveTokenCache(admin, profile.id, token);
+  }
+
+  // Keširaj shop user id nakon login-a (za direction out/in)
+  if (profile.olx_user_id == null) {
+    try {
+      await ensureOlxUserId(admin, profile, client);
+    } catch (err) {
+      console.warn(
+        `ensureOlxUserId za "${profile.name}" nije uspio:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return client;

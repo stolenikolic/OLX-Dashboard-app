@@ -171,12 +171,25 @@ export type OlxConversationListing = {
 export type OlxConversation = {
   id: number;
   seen?: boolean;
+  saved?: boolean;
   sender?: OlxConversationSender;
   last_message?: { id?: number; type?: string; content?: string };
   listing?: OlxConversationListing | null;
   unread_messages?: number;
   created_at: number;
   updated_at: number;
+};
+
+export type OlxMessage = {
+  id: number;
+  type: string; // text | image | listing | system
+  status?: string; // sent | seen | none | ...
+  content?: string;
+  data?: { url?: string; title?: string; price?: number; image?: string; [k: string]: unknown } | null;
+  sender?: OlxConversationSender & { type?: string };
+  sender_id?: number;
+  created_at: number;
+  [key: string]: unknown;
 };
 
 export type OlxPaginatedMeta = {

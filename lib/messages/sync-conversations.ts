@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
-import type { OlxClient } from "@/lib/olx/client";
 import type { OlxConversation } from "@/lib/olx/types";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
@@ -70,6 +69,8 @@ function mapConversationRow(
     inquiry_at: unixToIso(conv.created_at),
     unread_count: conv.unread_messages ?? 0,
     is_system: system,
+    saved: conv.saved === true,
+    buyer_avatar: conv.sender?.avatar ?? null,
     synced_at: new Date().toISOString(),
   };
 }

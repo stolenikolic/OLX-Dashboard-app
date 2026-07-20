@@ -6,13 +6,14 @@ import { JobRunsTable } from "@/components/dashboard/job-runs-table";
 import { ProfileCard } from "@/components/dashboard/profile-card";
 import { RunJobsPanel } from "@/components/dashboard/run-jobs-panel";
 import { getAuthContext } from "@/lib/auth/dal";
-import { createClient } from "@/lib/supabase/server";
 import {
   fetchDashboardTotals,
   fetchErrorSummary,
   fetchProfileSummaries,
   fetchRecentJobRuns,
 } from "@/lib/dashboard/queries";
+import { fetchUnreadTotal } from "@/lib/messages/queries";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -20,11 +21,12 @@ export default async function DashboardPage() {
   const jar = await cookies();
   const selectedProfileId = jar.get("dashboard_profile_id")?.value ?? null;
 
-  const [profiles, totals, recentJobs, errors] = await Promise.all([
+  const [profiles, totals, recentJobs, errors, unreadTotal] = await Promise.all([
     fetchProfileSummaries(supabase),
     fetchDashboardTotals(supabase),
     fetchRecentJobRuns(supabase, 10),
     fetchErrorSummary(supabase),
+    fetchUnreadTotal(supabase, isAdmin ? selectedProfileId : null),
   ]);
 
   const activeProfiles = profiles.filter((p) => p.status === "active");
@@ -40,7 +42,7 @@ export default async function DashboardPage() {
 
       <ErrorsWidget {...errors} />
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-zinc-500">Aktivni oglasi (svi profili)</p>
           <p className="mt-1 text-3xl font-bold text-teal-700">
@@ -53,6 +55,15 @@ export default async function DashboardPage() {
             {totals.productsInFeed.toLocaleString("bs-BA")}
           </p>
         </div>
+        <Link
+          href="/poruke"
+          className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:border-teal-200 hover:bg-teal-50/40"
+        >
+          <p className="text-sm text-zinc-500">Nepročitane poruke</p>
+          <p className="mt-1 text-3xl font-bold text-teal-700">
+            {unreadTotal}
+          </p>
+        </Link>
       </div>
 
       {isAdmin && (

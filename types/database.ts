@@ -78,6 +78,7 @@ export type Database = {
           olx_conversation_id: number
           buyer_id: number | null
           buyer_username: string | null
+          buyer_avatar: string | null
           olx_listing_id: number | null
           listing_title: string | null
           olx_category_id: number | null
@@ -86,6 +87,9 @@ export type Database = {
           inquiry_at: string | null
           unread_count: number
           is_system: boolean
+          saved: boolean
+          archived: boolean
+          messages_synced_at: string | null
           synced_at: string
           created_at: string
         }
@@ -95,6 +99,7 @@ export type Database = {
           olx_conversation_id: number
           buyer_id?: number | null
           buyer_username?: string | null
+          buyer_avatar?: string | null
           olx_listing_id?: number | null
           listing_title?: string | null
           olx_category_id?: number | null
@@ -103,6 +108,9 @@ export type Database = {
           inquiry_at?: string | null
           unread_count?: number
           is_system?: boolean
+          saved?: boolean
+          archived?: boolean
+          messages_synced_at?: string | null
           synced_at?: string
           created_at?: string
         }
@@ -112,6 +120,7 @@ export type Database = {
           olx_conversation_id?: number
           buyer_id?: number | null
           buyer_username?: string | null
+          buyer_avatar?: string | null
           olx_listing_id?: number | null
           listing_title?: string | null
           olx_category_id?: number | null
@@ -120,6 +129,9 @@ export type Database = {
           inquiry_at?: string | null
           unread_count?: number
           is_system?: boolean
+          saved?: boolean
+          archived?: boolean
+          messages_synced_at?: string | null
           synced_at?: string
           created_at?: string
         }
@@ -435,44 +447,63 @@ export type Database = {
       messages: {
         Row: {
           body: string | null
-          conversation_id: string | null
+          conversation_ref: string | null
           created_at: string
+          data: Json | null
           direction: string
           id: string
           is_read: boolean
+          olx_conversation_id: number | null
           olx_listing_id: number | null
+          olx_message_id: number | null
           profile_id: string
-          sender_email: string | null
-          sender_name: string | null
-          sender_phone: string | null
+          sender_id: number | null
+          sent_at: string | null
+          status: string | null
+          type: string
         }
         Insert: {
           body?: string | null
-          conversation_id?: string | null
+          conversation_ref?: string | null
           created_at?: string
+          data?: Json | null
           direction?: string
           id?: string
           is_read?: boolean
+          olx_conversation_id?: number | null
           olx_listing_id?: number | null
+          olx_message_id?: number | null
           profile_id: string
-          sender_email?: string | null
-          sender_name?: string | null
-          sender_phone?: string | null
+          sender_id?: number | null
+          sent_at?: string | null
+          status?: string | null
+          type?: string
         }
         Update: {
           body?: string | null
-          conversation_id?: string | null
+          conversation_ref?: string | null
           created_at?: string
+          data?: Json | null
           direction?: string
           id?: string
           is_read?: boolean
+          olx_conversation_id?: number | null
           olx_listing_id?: number | null
+          olx_message_id?: number | null
           profile_id?: string
-          sender_email?: string | null
-          sender_name?: string | null
-          sender_phone?: string | null
+          sender_id?: number | null
+          sent_at?: string | null
+          status?: string | null
+          type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "messages_conversation_ref_fkey"
+            columns: ["conversation_ref"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "messages_profile_id_fkey"
             columns: ["profile_id"]
@@ -667,6 +698,7 @@ export type Database = {
           olx_login_email: string | null
           olx_password_enc: string | null
           olx_token_expires_at: string | null
+          olx_user_id: number | null
           olx_username: string | null
           price_refresh_days: number
           proxy_url: string | null
@@ -696,6 +728,7 @@ export type Database = {
           olx_login_email?: string | null
           olx_password_enc?: string | null
           olx_token_expires_at?: string | null
+          olx_user_id?: number | null
           olx_username?: string | null
           price_refresh_days?: number
           proxy_url?: string | null
@@ -725,6 +758,7 @@ export type Database = {
           olx_login_email?: string | null
           olx_password_enc?: string | null
           olx_token_expires_at?: string | null
+          olx_user_id?: number | null
           olx_username?: string | null
           price_refresh_days?: number
           proxy_url?: string | null
@@ -855,6 +889,7 @@ export type Database = {
         | "delete_unmapped"
         | "sync_conversations"
         | "refresh_listings"
+        | "sync_messages"
       listing_status:
         | "draft"
         | "active"
@@ -1003,6 +1038,7 @@ export const Constants = {
         "delete_unmapped",
         "sync_conversations",
         "refresh_listings",
+        "sync_messages",
       ],
       listing_status: [
         "draft",

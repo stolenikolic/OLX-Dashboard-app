@@ -11,6 +11,7 @@ const jobLabels: Record<Database["public"]["Enums"]["job_type"], string> = {
   delete_unmapped: "Brisanje nemapiranih",
   sync_conversations: "Upiti (chat)",
   refresh_listings: "Obnavljanje oglasa",
+  sync_messages: "Poruke (chat)",
 };
 
 const statusColors: Record<JobStatus, string> = {

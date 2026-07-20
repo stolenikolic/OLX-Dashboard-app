@@ -5,6 +5,7 @@ import { logout } from "@/app/auth/actions";
 const links = [
   { href: "/", label: "Pregled" },
   { href: "/oglasi", label: "Katalog" },
+  { href: "/poruke", label: "Poruke" },
   { href: "/logovi", label: "Logovi" },
 ];
 
@@ -16,9 +17,14 @@ const adminLinks = [
 type SidebarProps = {
   isAdmin: boolean;
   email: string | null;
+  unreadTotal?: number;
 };
 
-export function DashboardSidebar({ isAdmin, email }: SidebarProps) {
+export function DashboardSidebar({
+  isAdmin,
+  email,
+  unreadTotal = 0,
+}: SidebarProps) {
   return (
     <aside className="flex w-full flex-col border-b border-zinc-200 bg-white md:w-56 md:border-b-0 md:border-r">
       <div className="border-b border-zinc-100 px-4 py-5">
@@ -36,9 +42,14 @@ export function DashboardSidebar({ isAdmin, email }: SidebarProps) {
           <Link
             key={link.href}
             href={link.href}
-            className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-teal-50 hover:text-teal-800"
+            className="flex items-center justify-between gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-teal-50 hover:text-teal-800"
           >
-            {link.label}
+            <span>{link.label}</span>
+            {link.href === "/poruke" && unreadTotal > 0 ? (
+              <span className="rounded-full bg-teal-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {unreadTotal > 99 ? "99+" : unreadTotal}
+              </span>
+            ) : null}
           </Link>
         ))}
         {isAdmin &&
