@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { listActiveProfiles } from "@/lib/listings/profile-client";
-import type { Database } from "@/types/database";
 import type { PriceMode } from "@/lib/pricing";
+import { listActiveProfiles } from "@/lib/workers/profile";
+import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
 
