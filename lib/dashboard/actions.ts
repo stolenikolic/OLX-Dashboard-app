@@ -28,7 +28,15 @@ import {
   loadProfileForWorker,
 } from "@/lib/listings/profile-client";
 import { syncUnmappedListings } from "@/lib/listings/sync-unmapped";
-import { calculateProductPrice } from "@/lib/pricing/context";
+import {
+  buildCompetitorIndex,
+  countCompetitorListings,
+  findCompetitorMin,
+} from "@/lib/pricing/competitor";
+import {
+  loadProfilePriceMode,
+  resolveProductListingPrice,
+} from "@/lib/pricing/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requestJobCancel } from "@/lib/workers/job-log";
@@ -104,16 +112,65 @@ export async function refreshListingPriceAction(listingId: string) {
   const client = await createClientForProfileId(listing.profile_id);
 
   let newPrice: number;
+  let audit: {
+    competitor_price: number | null;
+    competitor_seller_id: number | null;
+    competitor_matched_title: string | null;
+    price_floor_applied: boolean;
+    price_origin?: Database["public"]["Enums"]["offer_origin"] | null;
+    was_import?: boolean;
+  } = {
+    competitor_price: null,
+    competitor_seller_id: null,
+    competitor_matched_title: null,
+    price_floor_applied: false,
+  };
+
   if (listing.manual_price != null) {
     newPrice = Math.round(Number(listing.manual_price));
   } else {
-    const pricing = await calculateProductPrice(
+    const mode = await loadProfilePriceMode(admin, listing.profile_id);
+    let competitorMin = null;
+
+    if (mode === "competitor_minus_1") {
+      const count = await countCompetitorListings(admin);
+      if (count > 0) {
+        const index = await buildCompetitorIndex(admin);
+        const { data: product } = await admin
+          .from("products")
+          .select("title, categories(olx_category_id)")
+          .eq("id", listing.product_id)
+          .single();
+
+        if (product) {
+          const olxCategoryId =
+            product.categories?.olx_category_id != null
+              ? Number(product.categories.olx_category_id)
+              : null;
+          competitorMin = findCompetitorMin(
+            index,
+            product.title,
+            olxCategoryId,
+          );
+        }
+      }
+    }
+
+    const pricing = await resolveProductListingPrice(
       admin,
       listing.profile_id,
       listing.product_id,
-      { applyVariance: true },
+      { mode, competitorMin, applyVariance: true },
     );
     newPrice = pricing.finalPrice;
+    audit = {
+      competitor_price: competitorMin?.price ?? null,
+      competitor_seller_id: competitorMin?.sellerId ?? null,
+      competitor_matched_title: competitorMin?.matchedTitle ?? null,
+      price_floor_applied: pricing.floorApplied,
+      price_origin: pricing.origin,
+      was_import: pricing.wasImport,
+    };
   }
 
   await client.updateListing(listing.olx_listing_id!, { price: newPrice });
@@ -125,6 +182,7 @@ export async function refreshListingPriceAction(listingId: string) {
       last_price_sync_at: new Date().toISOString(),
       error: null,
       updated_at: new Date().toISOString(),
+      ...audit,
     })
     .eq("id", listingId);
 
@@ -559,6 +617,7 @@ export async function updateProfileSettingsAction(
     kurs: number;
     kurs_uvoz: number;
     daily_post_limit: number;
+    price_mode: Database["public"]["Enums"]["price_mode"];
     description_template: string;
     auth_method: Database["public"]["Enums"]["olx_auth_method"];
     olx_username: string;
@@ -578,6 +637,7 @@ export async function updateProfileSettingsAction(
     kurs: form.kurs,
     kurs_uvoz: form.kurs_uvoz,
     daily_post_limit: form.daily_post_limit,
+    price_mode: form.price_mode,
     description_template: form.description_template || null,
     auth_method: form.auth_method,
     olx_username: form.olx_username || null,

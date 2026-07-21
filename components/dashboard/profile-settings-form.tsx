@@ -22,6 +22,7 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
           kurs: Number(fd.get("kurs")),
           kurs_uvoz: Number(fd.get("kurs_uvoz")),
           daily_post_limit: Number(fd.get("daily_post_limit")),
+          price_mode: String(fd.get("price_mode")) as Profile["price_mode"],
           description_template: String(fd.get("description_template") ?? ""),
           auth_method: String(fd.get("auth_method")) as Profile["auth_method"],
           olx_username: String(fd.get("olx_username") ?? ""),
@@ -94,6 +95,19 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
             />
           </label>
         </div>
+        <label className="block text-sm">
+          Režim obnavljanja cijena
+          <select
+            name="price_mode"
+            defaultValue={profile.price_mode ?? "original"}
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+          >
+            <option value="original">Originalne cijene (formula + doplata)</option>
+            <option value="competitor_minus_1">
+              Cijena minus 1 (Suboticani − 1 KM, min. 8% marža)
+            </option>
+          </select>
+        </label>
         <label className="block text-sm">
           Šablon opisa
           <textarea

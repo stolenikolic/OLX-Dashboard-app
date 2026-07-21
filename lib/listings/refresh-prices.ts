@@ -8,7 +8,16 @@ import {
   loadProfileForWorker,
 } from "@/lib/workers/profile";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
-import { calculateProductPrice } from "@/lib/pricing/context";
+import {
+  buildCompetitorIndex,
+  findCompetitorMin,
+  type CompetitorIndex,
+} from "@/lib/pricing/competitor";
+import {
+  loadProfilePriceMode,
+  resolveProductListingPrice,
+} from "@/lib/pricing/context";
+import type { PriceMode } from "@/lib/pricing";
 import type { OlxClient } from "@/lib/olx/client";
 import type { Database, Json } from "@/types/database";
 
@@ -20,10 +29,14 @@ type ActiveListingRow = {
   olx_listing_id: number;
   posted_price: number | null;
   manual_price: number | null;
+  last_price_sync_at: string | null;
   products: {
     id: string;
     title: string;
     in_feed: boolean;
+    categories: {
+      olx_category_id: number | null;
+    } | null;
   } | null;
 };
 
@@ -68,17 +81,22 @@ async function loadActiveListings(
       olx_listing_id,
       posted_price,
       manual_price,
+      last_price_sync_at,
       products (
         id,
         title,
-        in_feed
+        in_feed,
+        categories (
+          olx_category_id
+        )
       )
     `,
     )
     .eq("profile_id", profileId)
     .eq("status", "active")
     .not("olx_listing_id", "is", null)
-    .not("product_id", "is", null);
+    .not("product_id", "is", null)
+    .order("last_price_sync_at", { ascending: true, nullsFirst: true });
 
   if (error) {
     throw new Error(`Učitavanje aktivnih oglasa nije uspjelo: ${error.message}`);
@@ -94,8 +112,8 @@ export async function runRefreshPricesWorker(
   const profile = await loadProfileForWorker(admin, options.profileId);
   const dryRun = options.dryRun ?? false;
   const maxUpdates = resolveMaxUpdates(options.maxUpdates);
-  const delayMinMs = options.delayMinMs ?? 500;
-  const delayMaxMs = options.delayMaxMs ?? 1500;
+  const delayMinMs = options.delayMinMs ?? 200;
+  const delayMaxMs = options.delayMaxMs ?? 400;
 
   const result: RefreshPricesResult = {
     scanned: 0,
@@ -112,6 +130,13 @@ export async function runRefreshPricesWorker(
     return result;
   }
 
+  const priceMode: PriceMode = await loadProfilePriceMode(admin, profile.id);
+
+  let competitorIndex: CompetitorIndex | null = null;
+  if (priceMode === "competitor_minus_1") {
+    competitorIndex = await buildCompetitorIndex(admin);
+  }
+
   let client: OlxClient | null = null;
   if (!dryRun) {
     client = await createClientForProfile(admin, profile);
@@ -120,7 +145,9 @@ export async function runRefreshPricesWorker(
   const jobRunId = options.jobRunId;
 
   console.log(
-    `Osvježavanje cijena: ${listings.length} oglasa${dryRun ? " (DRY RUN)" : ""}${maxUpdates != null ? `, max ${maxUpdates} update-a` : ""}.`,
+    `Osvježavanje cijena (${priceMode}): ${listings.length} oglasa` +
+      `${dryRun ? " (DRY RUN)" : ""}` +
+      `${maxUpdates != null ? `, max ${maxUpdates} update-a` : ""}.`,
   );
 
   for (const listing of listings) {
@@ -144,16 +171,32 @@ export async function runRefreshPricesWorker(
     }
 
     try {
-      const pricing = await calculateProductPrice(
+      const title = listing.products.title;
+      const olxCategoryId =
+        listing.products.categories?.olx_category_id != null
+          ? Number(listing.products.categories.olx_category_id)
+          : null;
+
+      const competitorMin =
+        priceMode === "competitor_minus_1" && competitorIndex
+          ? findCompetitorMin(competitorIndex, title, olxCategoryId)
+          : null;
+
+      const pricing = await resolveProductListingPrice(
         admin,
         profile.id,
         listing.product_id,
-        { applyVariance: true },
+        {
+          mode: priceMode,
+          competitorMin,
+          applyVariance: true,
+        },
       );
 
-      const currentPrice = listing.posted_price != null
-        ? Math.round(Number(listing.posted_price))
-        : null;
+      const currentPrice =
+        listing.posted_price != null
+          ? Math.round(Number(listing.posted_price))
+          : null;
       const newPrice = pricing.finalPrice;
 
       if (currentPrice === newPrice) {
@@ -162,6 +205,10 @@ export async function runRefreshPricesWorker(
           .from("listings")
           .update({
             last_price_sync_at: new Date().toISOString(),
+            competitor_price: competitorMin?.price ?? null,
+            competitor_seller_id: competitorMin?.sellerId ?? null,
+            competitor_matched_title: competitorMin?.matchedTitle ?? null,
+            price_floor_applied: pricing.floorApplied,
             updated_at: new Date().toISOString(),
           })
           .eq("id", listing.id);
@@ -170,7 +217,10 @@ export async function runRefreshPricesWorker(
 
       if (dryRun) {
         console.log(
-          `[dry-run] OLX #${listing.olx_listing_id} "${listing.products.title}": ${currentPrice ?? "?"} → ${newPrice} KM`,
+          `[dry-run] OLX #${listing.olx_listing_id} "${title}": ` +
+            `${currentPrice ?? "?"} → ${newPrice} KM ` +
+            `(target=${pricing.target}, floor=${pricing.floor}, ` +
+            `comp=${competitorMin?.price ?? "—"}, floorApplied=${pricing.floorApplied})`,
         );
         result.updated++;
         continue;
@@ -185,6 +235,10 @@ export async function runRefreshPricesWorker(
           price_origin: pricing.origin,
           was_import: pricing.wasImport,
           last_price_sync_at: new Date().toISOString(),
+          competitor_price: competitorMin?.price ?? null,
+          competitor_seller_id: competitorMin?.sellerId ?? null,
+          competitor_matched_title: competitorMin?.matchedTitle ?? null,
+          price_floor_applied: pricing.floorApplied,
           updated_at: new Date().toISOString(),
           error: null,
         })
@@ -192,7 +246,8 @@ export async function runRefreshPricesWorker(
 
       result.updated++;
       console.log(
-        `Ažurirano OLX #${listing.olx_listing_id}: ${currentPrice ?? "?"} → ${newPrice} KM`,
+        `Ažurirano OLX #${listing.olx_listing_id}: ${currentPrice ?? "?"} → ${newPrice} KM` +
+          ` (target=${pricing.target}, floor=${pricing.floor}, comp=${competitorMin?.price ?? "—"})`,
       );
 
       if (maxUpdates == null || result.updated < maxUpdates) {

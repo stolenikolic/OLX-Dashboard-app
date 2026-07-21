@@ -2,11 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   calculatePrice,
+  resolveListingPrice,
   type CategoryPricing,
+  type CompetitorMatchInfo,
   type GlobalPricing,
   type OfferInput,
   type PriceCalculationResult,
+  type PriceMode,
   type ProfilePricing,
+  type ResolveListingPriceResult,
+  DEFAULT_COMPETITOR_MARGIN_DROP,
+  DEFAULT_COMPETITOR_UNDERCUT_KM,
   DEFAULT_GLOBAL_PRICING,
   DEFAULT_PROFILE_PRICING,
 } from "@/lib/pricing";
@@ -35,6 +41,39 @@ export async function loadGlobalPricing(admin: Admin): Promise<GlobalPricing> {
   };
 }
 
+export type CompetitorPricingSettings = {
+  undercutKm: number;
+  marginDrop: number;
+};
+
+export async function loadCompetitorPricingSettings(
+  admin: Admin,
+): Promise<CompetitorPricingSettings> {
+  const { data, error } = await admin
+    .from("app_settings")
+    .select("competitor_undercut_km, competitor_margin_drop")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      undercutKm: DEFAULT_COMPETITOR_UNDERCUT_KM,
+      marginDrop: DEFAULT_COMPETITOR_MARGIN_DROP,
+    };
+  }
+
+  return {
+    undercutKm:
+      data.competitor_undercut_km != null
+        ? Number(data.competitor_undercut_km)
+        : DEFAULT_COMPETITOR_UNDERCUT_KM,
+    marginDrop:
+      data.competitor_margin_drop != null
+        ? Number(data.competitor_margin_drop)
+        : DEFAULT_COMPETITOR_MARGIN_DROP,
+  };
+}
+
 export async function loadProfilePricing(
   admin: Admin,
   profileId: string,
@@ -55,12 +94,30 @@ export async function loadProfilePricing(
   };
 }
 
+export async function loadProfilePriceMode(
+  admin: Admin,
+  profileId: string,
+): Promise<PriceMode> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("price_mode")
+    .eq("id", profileId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Profil ${profileId} nije pronađen.`);
+  }
+
+  return data.price_mode ?? "original";
+}
+
 export type ProductPricingRow = {
   id: string;
   title: string;
   feed_uuid: string;
   import_override: Database["public"]["Enums"]["import_override"];
   category: CategoryPricing;
+  olxCategoryId: number | null;
   offers: OfferInput[];
 };
 
@@ -79,7 +136,8 @@ export async function loadProductForPricing(
       categories (
         marza_huf,
         marza_bih,
-        import_flag
+        import_flag,
+        olx_category_id
       ),
       product_offers (
         origin,
@@ -118,6 +176,8 @@ export async function loadProductForPricing(
     feed_uuid: data.feed_uuid,
     import_override: data.import_override,
     category,
+    olxCategoryId:
+      cat?.olx_category_id != null ? Number(cat.olx_category_id) : null,
     offers,
   };
 }
@@ -145,6 +205,55 @@ export async function calculateProductPrice(
   });
 
   return { ...result, product };
+}
+
+/**
+ * Mode-aware cijena za listing (original / competitor_minus_1).
+ */
+export async function resolveProductListingPrice(
+  admin: Admin,
+  profileId: string,
+  productId: string,
+  options?: {
+    mode?: PriceMode;
+    competitorMin?: CompetitorMatchInfo | null;
+    applyVariance?: boolean;
+    rng?: () => number;
+  },
+): Promise<
+  ResolveListingPriceResult & {
+    product: ProductPricingRow;
+    mode: PriceMode;
+  }
+> {
+  const [global, profile, product, mode, competitorSettings] =
+    await Promise.all([
+      loadGlobalPricing(admin),
+      loadProfilePricing(admin, profileId),
+      loadProductForPricing(admin, productId),
+      options?.mode
+        ? Promise.resolve(options.mode)
+        : loadProfilePriceMode(admin, profileId),
+      loadCompetitorPricingSettings(admin),
+    ]);
+
+  const result = resolveListingPrice({
+    calcInput: {
+      offers: product.offers,
+      category: product.category,
+      product: { import_override: product.import_override },
+      profile,
+      global,
+    },
+    mode,
+    competitorMin: options?.competitorMin ?? null,
+    undercutKm: competitorSettings.undercutKm,
+    marginDrop: competitorSettings.marginDrop,
+    applyVariance: options?.applyVariance,
+    rng: options?.rng,
+  });
+
+  return { ...result, product, mode };
 }
 
 /** Fallback when nema profila u bazi — koristi PRD defaulte. */

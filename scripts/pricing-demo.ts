@@ -24,7 +24,9 @@ function printResult(
   );
   console.log(`  BiH=${fmt(result.breakdown.bih)}`);
   console.log(
-    `  → origin=${result.origin} base=${result.basePrice} KM final=${result.finalPrice} KM` +
+    `  → origin=${result.origin} base=${result.basePrice} KM ` +
+      `surcharge=+${result.surcharge} withSurcharge=${result.priceWithSurcharge} ` +
+      `final=${result.finalPrice} KM` +
       (result.variancePct != null
         ? ` (var ${(result.variancePct * 100).toFixed(2)}%)`
         : ""),

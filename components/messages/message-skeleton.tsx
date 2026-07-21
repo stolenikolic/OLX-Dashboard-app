@@ -2,7 +2,9 @@ export function DateSeparator({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 px-4 py-2">
       <div className="h-px flex-1 bg-zinc-200" />
-      <span className="text-xs font-medium text-zinc-400">{label}</span>
+      <span className="text-xs font-medium text-zinc-400" suppressHydrationWarning>
+        {label}
+      </span>
       <div className="h-px flex-1 bg-zinc-200" />
     </div>
   );

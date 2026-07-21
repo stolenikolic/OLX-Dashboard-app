@@ -99,7 +99,7 @@ export default async function PorukePage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-3">
-      <PorukePoll profileId={profileId} />
+      <PorukePoll profileId={profileId} conversationId={selectedId} />
 
       <div className="shrink-0">
         <h1 className="text-2xl font-bold text-zinc-900">Poruke</h1>

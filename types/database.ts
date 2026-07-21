@@ -16,6 +16,8 @@ export type Database = {
     Tables: {
       app_settings: {
         Row: {
+          competitor_margin_drop: number
+          competitor_undercut_km: number
           daily_post_limit: number
           default_marza: number
           eur_factor: number
@@ -34,6 +36,8 @@ export type Database = {
           refresh_unmapped_penalty: number
         }
         Insert: {
+          competitor_margin_drop?: number
+          competitor_undercut_km?: number
           daily_post_limit?: number
           default_marza?: number
           eur_factor?: number
@@ -52,6 +56,8 @@ export type Database = {
           refresh_unmapped_penalty?: number
         }
         Update: {
+          competitor_margin_drop?: number
+          competitor_undercut_km?: number
           daily_post_limit?: number
           default_marza?: number
           eur_factor?: number
@@ -68,6 +74,63 @@ export type Database = {
           refresh_inquiry_halflife_days?: number
           refresh_staleness_cap_days?: number
           refresh_unmapped_penalty?: number
+        }
+        Relationships: []
+      }
+      competitor_listings: {
+        Row: {
+          category_id: number | null
+          discounted_price: number | null
+          fetched_at: string
+          olx_listing_id: number
+          price: number | null
+          seller_name: string | null
+          seller_user_id: number
+          title: string
+        }
+        Insert: {
+          category_id?: number | null
+          discounted_price?: number | null
+          fetched_at?: string
+          olx_listing_id: number
+          price?: number | null
+          seller_name?: string | null
+          seller_user_id: number
+          title: string
+        }
+        Update: {
+          category_id?: number | null
+          discounted_price?: number | null
+          fetched_at?: string
+          olx_listing_id?: number
+          price?: number | null
+          seller_name?: string | null
+          seller_user_id?: number
+          title?: string
+        }
+        Relationships: []
+      }
+      competitor_sellers: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          grp: string
+          name: string
+          olx_user_id: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          grp?: string
+          name: string
+          olx_user_id: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          grp?: string
+          name?: string
+          olx_user_id?: number
         }
         Relationships: []
       }
@@ -365,6 +428,9 @@ export type Database = {
       }
       listings: {
         Row: {
+          competitor_matched_title: string | null
+          competitor_price: number | null
+          competitor_seller_id: number | null
           created_at: string
           error: string | null
           feed_uuid: string | null
@@ -376,6 +442,7 @@ export type Database = {
           manual_price: number | null
           olx_listing_id: number | null
           posted_price: number | null
+          price_floor_applied: boolean
           price_origin: Database["public"]["Enums"]["offer_origin"] | null
           product_id: string | null
           profile_id: string
@@ -386,6 +453,9 @@ export type Database = {
           was_import: boolean
         }
         Insert: {
+          competitor_matched_title?: string | null
+          competitor_price?: number | null
+          competitor_seller_id?: number | null
           created_at?: string
           error?: string | null
           feed_uuid?: string | null
@@ -397,6 +467,7 @@ export type Database = {
           manual_price?: number | null
           olx_listing_id?: number | null
           posted_price?: number | null
+          price_floor_applied?: boolean
           price_origin?: Database["public"]["Enums"]["offer_origin"] | null
           product_id?: string | null
           profile_id: string
@@ -407,6 +478,9 @@ export type Database = {
           was_import?: boolean
         }
         Update: {
+          competitor_matched_title?: string | null
+          competitor_price?: number | null
+          competitor_seller_id?: number | null
           created_at?: string
           error?: string | null
           feed_uuid?: string | null
@@ -418,6 +492,7 @@ export type Database = {
           manual_price?: number | null
           olx_listing_id?: number | null
           posted_price?: number | null
+          price_floor_applied?: boolean
           price_origin?: Database["public"]["Enums"]["offer_origin"] | null
           product_id?: string | null
           profile_id?: string
@@ -700,6 +775,7 @@ export type Database = {
           olx_token_expires_at: string | null
           olx_user_id: number | null
           olx_username: string | null
+          price_mode: Database["public"]["Enums"]["price_mode"]
           price_refresh_days: number
           proxy_url: string | null
           refresh_free_count: number | null
@@ -730,6 +806,7 @@ export type Database = {
           olx_token_expires_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
           proxy_url?: string | null
           refresh_free_count?: number | null
@@ -760,6 +837,7 @@ export type Database = {
           olx_token_expires_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
           proxy_url?: string | null
           refresh_free_count?: number | null
@@ -890,6 +968,7 @@ export type Database = {
         | "sync_conversations"
         | "refresh_listings"
         | "sync_messages"
+        | "sync_competitors"
       listing_status:
         | "draft"
         | "active"
@@ -899,6 +978,7 @@ export type Database = {
         | "pending"
       offer_origin: "HUF" | "BIH"
       olx_auth_method: "login" | "client_token"
+      price_mode: "original" | "competitor_minus_1"
       profile_status: "active" | "paused" | "suspended"
     }
     CompositeTypes: {
@@ -1039,6 +1119,7 @@ export const Constants = {
         "sync_conversations",
         "refresh_listings",
         "sync_messages",
+        "sync_competitors",
       ],
       listing_status: [
         "draft",
@@ -1050,6 +1131,7 @@ export const Constants = {
       ],
       offer_origin: ["HUF", "BIH"],
       olx_auth_method: ["login", "client_token"],
+      price_mode: ["original", "competitor_minus_1"],
       profile_status: ["active", "paused", "suspended"],
     },
   },

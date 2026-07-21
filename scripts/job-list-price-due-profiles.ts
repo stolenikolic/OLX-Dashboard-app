@@ -30,9 +30,14 @@ async function main() {
     );
   }
 
-  const matrix = { profile: profiles };
+  const hasCompetitorMode = profiles.some(
+    (p) => p.price_mode === "competitor_minus_1",
+  );
+
+  const matrix = { profile: profiles.map(({ id, name }) => ({ id, name })) };
   writeGithubOutput([
     `has_profiles=${profiles.length > 0}`,
+    `has_competitor_mode=${hasCompetitorMode}`,
     `matrix=${JSON.stringify(matrix)}`,
   ]);
 }

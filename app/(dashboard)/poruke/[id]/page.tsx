@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PorukePoll } from "@/components/messages/poruke-poll";
 import { ThreadPanel } from "@/components/messages/thread-panel";
 import {
   fetchConversationById,
@@ -24,6 +25,10 @@ export default async function PorukeThreadPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-3xl flex-col">
+      <PorukePoll
+        profileId={conversation.profileId}
+        conversationId={conversation.id}
+      />
       <Link
         href="/poruke"
         className="mb-2 shrink-0 text-sm text-teal-600 hover:underline"

@@ -66,6 +66,7 @@ export function MessageBubble({
               : "rounded-bl-md bg-white text-zinc-900 ring-1 ring-zinc-200"
           } ${sending ? "opacity-70" : ""} ${isFailed ? "ring-2 ring-red-400" : ""}`}
           title={formatExactTime(message.sentAt)}
+          suppressHydrationWarning
         >
           {message.type === "image" && url ? (
             <button
@@ -94,7 +95,9 @@ export function MessageBubble({
               isOut ? "justify-end text-teal-100" : "text-zinc-400"
             }`}
           >
-            <span>{formatRelativeTime(message.sentAt)}</span>
+            <span suppressHydrationWarning>
+              {formatRelativeTime(message.sentAt)}
+            </span>
             {isOut && message.status ? (
               <span aria-label={message.status}>
                 {message.status === "seen" ? "✓✓" : "✓"}

@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/dal";
 import {
   createClientForProfileId,
 } from "@/lib/listings/profile-client";
+import { runSyncConversationsWorker } from "@/lib/messages/sync-conversations";
 import { runSyncMessagesWorker } from "@/lib/messages/sync-messages";
 import { fetchMessages } from "@/lib/messages/queries";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
@@ -85,6 +86,88 @@ function mapOlxMessageToRow(
 }
 
 const SYNC_STALE_MS = 2 * 60 * 1000;
+/** Live poll na /poruke: samo prva stranica inboxa (anti-detekcija / brzina). */
+const POLL_CONVERSATION_PAGES = 1;
+
+async function assertCanAccessProfile(profileId: string) {
+  const ctx = await requireUser();
+  if (ctx.isAdmin) return ctx;
+  const ok = ctx.memberships.some((m) => m.profile_id === profileId);
+  if (!ok) {
+    throw new Error("Nemate pristup ovom profilu.");
+  }
+  return ctx;
+}
+
+/**
+ * Live sync inboxa s OLX-a dok je korisnik na /poruke.
+ * Ide isključivo server-side kroz proxy profila (nikad iz browsera / host IP).
+ */
+export async function pollInboxFromOlxAction(
+  profileId: string,
+  options?: { conversationId?: string | null },
+): Promise<{
+  conversationsUpserted: number;
+  messagesUpserted: number;
+}> {
+  await assertCanAccessProfile(profileId);
+  const admin = createAdminClient();
+  const profile = await loadProfileForWorker(admin, profileId);
+
+  if (!profile.proxy_url?.trim()) {
+    throw new Error(
+      `Profil "${profile.name}" nema proxy_url — OLX sync iz dashboarda nije dozvoljen bez proxy-ja.`,
+    );
+  }
+
+  try {
+    // createClientForProfile unutar workera → ProxyAgent(proxy_url)
+    const convStats = await runSyncConversationsWorker(admin, {
+      profileId,
+      maxPages: POLL_CONVERSATION_PAGES,
+    });
+
+    const msgStats = await runSyncMessagesWorker(admin, {
+      profileId,
+      onlyUnread: true,
+      maxPagesPerConversation: 1,
+    });
+
+    let openUpserted = 0;
+    const openId = options?.conversationId;
+    if (openId) {
+      const { data: openConv } = await admin
+        .from("conversations")
+        .select("olx_conversation_id")
+        .eq("id", openId)
+        .eq("profile_id", profileId)
+        .maybeSingle();
+
+      if (openConv?.olx_conversation_id) {
+        const openStats = await runSyncMessagesWorker(admin, {
+          profileId,
+          conversationIds: [openConv.olx_conversation_id],
+          onlyUnread: false,
+          maxPagesPerConversation: 1,
+        });
+        openUpserted = openStats.upserted;
+      }
+    }
+
+    revalidatePath("/poruke");
+    revalidatePath("/");
+
+    return {
+      conversationsUpserted: convStats.upserted,
+      messagesUpserted: msgStats.upserted + openUpserted,
+    };
+  } catch (err) {
+    if (isAuthFailure(err)) {
+      await handleOlxAuthFailure(admin, profile.id, profile.name, err);
+    }
+    throw err;
+  }
+}
 
 export async function openConversationAction(conversationId: string) {
   await requireUser();

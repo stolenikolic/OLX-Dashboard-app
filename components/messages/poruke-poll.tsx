@@ -3,16 +3,22 @@
 import { useRouter } from "next/navigation";
 
 import {
-  usePollRefresh,
+  useOlxInboxPoll,
   useRealtimeConversations,
 } from "@/components/messages/use-realtime-messages";
 
-/** Client wrapper: Realtime na conversations + poll fallback. */
-export function PorukePoll({ profileId }: { profileId: string | null }) {
+/** Realtime na DB + OLX sync (server→proxy) na focus / svakih 2 min. */
+export function PorukePoll({
+  profileId,
+  conversationId = null,
+}: {
+  profileId: string | null;
+  conversationId?: string | null;
+}) {
   const router = useRouter();
   useRealtimeConversations(profileId, () => {
     router.refresh();
   });
-  usePollRefresh(true);
+  useOlxInboxPoll(profileId, conversationId);
   return null;
 }

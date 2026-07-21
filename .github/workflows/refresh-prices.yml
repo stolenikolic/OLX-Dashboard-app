@@ -1,5 +1,6 @@
 # =============================================================================
 # Refresh Prices — obnavlja cijene po profilu.
+# Ako neki profil koristi competitor_minus_1, prvo se synca competitor katalog.
 # =============================================================================
 name: refresh-prices
 
@@ -27,6 +28,7 @@ jobs:
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
       has_profiles: ${{ steps.list.outputs.has_profiles }}
+      has_competitor_mode: ${{ steps.list.outputs.has_competitor_mode }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,9 +45,27 @@ jobs:
           FORCE: ${{ github.event.inputs.force }}
         run: npm run job:list-price-due-profiles
 
-  refresh:
+  competitors:
     needs: prepare
-    if: ${{ needs.prepare.outputs.has_profiles == 'true' }}
+    if: ${{ needs.prepare.outputs.has_competitor_mode == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Sync competitor listings (Suboticani)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:sync-competitor-listings
+
+  refresh:
+    needs: [prepare, competitors]
+    if: ${{ always() && needs.prepare.outputs.has_profiles == 'true' && needs.prepare.result == 'success' && (needs.competitors.result == 'success' || needs.competitors.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:

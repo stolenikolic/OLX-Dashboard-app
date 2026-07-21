@@ -2,6 +2,7 @@ import type { Database } from "@/types/database";
 
 export type OfferOrigin = Database["public"]["Enums"]["offer_origin"];
 export type ImportOverride = Database["public"]["Enums"]["import_override"];
+export type PriceMode = Database["public"]["Enums"]["price_mode"];
 
 export type OfferInput = {
   origin: OfferOrigin;
@@ -36,16 +37,34 @@ export type PriceCalculationInput = {
   product: ProductPricing;
   profile: ProfilePricing;
   global: GlobalPricing;
+  /** Oduzima se od marži prije računanja (npr. 0.02 za 8% umjesto 10%). */
+  marginDrop?: number;
   /** Default true — primjenjuje random ±% iz global postavki. */
   applyVariance?: boolean;
   /** Optional RNG (0–1) for tests; defaults to Math.random. */
   rng?: () => number;
 };
 
-export type PriceCalculationResult = {
-  /** Cijena prije random varijacije, zaokružena na cijeli KM. */
+export type ChosenBaseResult = {
   basePrice: number;
-  /** Konačna cijena za OLX (sa varijacijom). */
+  origin: OfferOrigin;
+  wasImport: boolean;
+  breakdown: {
+    hufStandard: number | null;
+    hufImport: number | null;
+    hufChosen: number | null;
+    bih: number | null;
+  };
+};
+
+export type PriceCalculationResult = {
+  /** Cijena prije doplate i random varijacije, zaokružena na cijeli KM. */
+  basePrice: number;
+  /** Cheap-item doplata. */
+  surcharge: number;
+  /** basePrice + surcharge, prije varijanse. */
+  priceWithSurcharge: number;
+  /** Konačna cijena za OLX (sa doplatom i varijacijom). */
   finalPrice: number;
   /** Koje porijeklo ponude je pobijedilo. */
   origin: OfferOrigin;
@@ -73,3 +92,6 @@ export const DEFAULT_PROFILE_PRICING: ProfilePricing = {
   kurs: 380,
   kurs_uvoz: 350,
 };
+
+export const DEFAULT_COMPETITOR_UNDERCUT_KM = 1;
+export const DEFAULT_COMPETITOR_MARGIN_DROP = 0.02;

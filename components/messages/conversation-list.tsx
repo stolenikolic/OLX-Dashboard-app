@@ -41,7 +41,7 @@ export function ConversationList({
                   <p className="truncate text-sm font-semibold text-zinc-900">
                     {c.buyerUsername ?? "Kupac"}
                   </p>
-                  <span className="shrink-0 text-[11px] text-zinc-400">
+                  <span className="shrink-0 text-[11px] text-zinc-400" suppressHydrationWarning>
                     {formatRelativeTime(c.lastMessageAt)}
                   </span>
                 </div>

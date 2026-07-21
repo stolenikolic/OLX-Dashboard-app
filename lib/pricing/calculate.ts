@@ -1,5 +1,8 @@
+import { cheapSurcharge } from "@/lib/pricing/cheap-surcharge";
 import { resolveImportMode } from "@/lib/pricing/import";
 import type {
+  CategoryPricing,
+  ChosenBaseResult,
   GlobalPricing,
   OfferInput,
   PriceCalculationInput,
@@ -57,22 +60,26 @@ function findOffer(
   return offers.find((o) => o.origin === origin);
 }
 
+function applyMarginDrop(
+  category: CategoryPricing,
+  marginDrop: number,
+): CategoryPricing {
+  if (!marginDrop || marginDrop <= 0) return category;
+  return {
+    ...category,
+    marza_huf: Math.max(1, category.marza_huf - marginDrop),
+    marza_bih: Math.max(1, category.marza_bih - marginDrop),
+  };
+}
+
 /**
- * Izračunava OLX cijenu prema PRD §6.3–6.5.
- * Uspoređuje primjenjivi HUF (standard/uvoz) i BiH, bira nižu, primjenjuje random ±%.
+ * Izračunava baznu cijenu (pobjednik HUF/BIH) bez doplate i bez varijanse.
  */
-export function calculatePrice(
+export function computeChosenBaseKm(
   input: PriceCalculationInput,
-): PriceCalculationResult {
-  const {
-    offers,
-    category,
-    product,
-    profile,
-    global,
-    applyVariance = true,
-    rng = Math.random,
-  } = input;
+): ChosenBaseResult {
+  const { offers, product, profile, global, marginDrop = 0 } = input;
+  const category = applyMarginDrop(input.category, marginDrop);
 
   const useImport = resolveImportMode(
     product.import_override,
@@ -124,32 +131,60 @@ export function calculatePrice(
     cur.raw < best.raw ? cur : best,
   );
 
-  const basePrice = roundKm(winner.raw);
+  return {
+    basePrice: roundKm(winner.raw),
+    origin: winner.origin,
+    wasImport: winner.wasImport,
+    breakdown: { hufStandard, hufImport, hufChosen, bih },
+  };
+}
+
+/**
+ * Izračunava OLX cijenu prema PRD §6.3–6.5 + cheap-item doplata.
+ * Uspoređuje primjenjivi HUF (standard/uvoz) i BiH, bira nižu, dodaje
+ * cheap surcharge, pa primjenjuje random ±%.
+ */
+export function calculatePrice(
+  input: PriceCalculationInput,
+): PriceCalculationResult {
+  const {
+    global,
+    applyVariance = true,
+    rng = Math.random,
+  } = input;
+
+  const chosen = computeChosenBaseKm(input);
+  const surcharge = cheapSurcharge(chosen.basePrice);
+  const priceWithSurcharge = roundKm(chosen.basePrice + surcharge);
 
   if (!applyVariance) {
     return {
-      basePrice,
-      finalPrice: basePrice,
-      origin: winner.origin,
-      wasImport: winner.wasImport,
+      basePrice: chosen.basePrice,
+      surcharge,
+      priceWithSurcharge,
+      finalPrice: priceWithSurcharge,
+      origin: chosen.origin,
+      wasImport: chosen.wasImport,
       variancePct: null,
-      breakdown: { hufStandard, hufImport, hufChosen, bih },
+      breakdown: chosen.breakdown,
     };
   }
 
   const { price: finalPrice, variancePct } = applyRandomVariance(
-    basePrice,
+    priceWithSurcharge,
     global.random_pct_min,
     global.random_pct_max,
     rng,
   );
 
   return {
-    basePrice,
+    basePrice: chosen.basePrice,
+    surcharge,
+    priceWithSurcharge,
     finalPrice,
-    origin: winner.origin,
-    wasImport: winner.wasImport,
+    origin: chosen.origin,
+    wasImport: chosen.wasImport,
     variancePct,
-    breakdown: { hufStandard, hufImport, hufChosen, bih },
+    breakdown: chosen.breakdown,
   };
 }

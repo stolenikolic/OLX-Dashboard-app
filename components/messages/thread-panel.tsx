@@ -17,7 +17,6 @@ import {
 } from "@/components/messages/message-skeleton";
 import { ThreadHeader } from "@/components/messages/thread-header";
 import {
-  usePollRefresh,
   useRealtimeMessages,
 } from "@/components/messages/use-realtime-messages";
 import {
@@ -98,7 +97,6 @@ export function ThreadPanel({
   }, []);
 
   useRealtimeMessages(conversation.id, appendMessage);
-  usePollRefresh(true);
 
   const grouped = useMemo(() => {
     const items: Array<

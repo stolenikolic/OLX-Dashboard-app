@@ -1,8 +1,37 @@
-/** Relativno vrijeme (bs) + tačan title. */
-export function formatRelativeTime(iso: string | null | undefined): string {
-  if (!iso) return "";
+/** Deterministički format datuma — bez toLocale* (izbjegava SSR hydration mismatch). */
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function parseDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+/** dd.MM.yyyy. */
+export function formatDateFixed(iso: string | null | undefined): string {
+  const date = parseDate(iso);
+  if (!date) return "";
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}.`;
+}
+
+/** dd.MM.yyyy. HH:mm — za title/tooltip. */
+export function formatExactTime(iso: string | null | undefined): string {
+  const date = parseDate(iso);
+  if (!date) return "";
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}. ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * Relativno vrijeme. Koristi Date.now() — na SSR može malo odstupati od klijenta;
+ * komponente trebaju suppressHydrationWarning na elementu koji ovo prikazuje.
+ */
+export function formatRelativeTime(iso: string | null | undefined): string {
+  const date = parseDate(iso);
+  if (!date) return "";
 
   const now = Date.now();
   const diffMs = now - date.getTime();
@@ -16,28 +45,13 @@ export function formatRelativeTime(iso: string | null | undefined): string {
   if (days === 1) return "juče";
   if (days < 7) return `prije ${days} d`;
 
-  return date.toLocaleDateString("bs-BA", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-export function formatExactTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("bs-BA", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateFixed(iso);
 }
 
 export function formatDateSeparator(iso: string): string {
-  const date = new Date(iso);
+  const date = parseDate(iso);
+  if (!date) return "";
+
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
@@ -49,16 +63,11 @@ export function formatDateSeparator(iso: string): string {
 
   if (sameDay(date, today)) return "Danas";
   if (sameDay(date, yesterday)) return "Juče";
-  return date.toLocaleDateString("bs-BA", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDateFixed(iso);
 }
 
 export function dayKey(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+  const d = parseDate(iso);
+  if (!d) return "";
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }

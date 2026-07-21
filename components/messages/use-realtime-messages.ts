@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { pollInboxFromOlxAction } from "@/lib/messages/actions";
 import { createClient } from "@/lib/supabase/client";
 import type { MessageRow } from "@/lib/messages/queries";
 import type { Json } from "@/types/database";
@@ -142,4 +143,89 @@ export function usePollRefresh(enabled: boolean, intervalMs = 120_000) {
       window.removeEventListener("focus", onFocus);
     };
   }, [enabled, intervalMs, refresh]);
+}
+
+/**
+ * Pravi OLX sync (server action → proxy profila) na focus + svakih 2 min.
+ * Ne zove OLX iz browsera.
+ */
+export function useOlxInboxPoll(
+  profileId: string | null,
+  conversationId: string | null,
+  intervalMs = 120_000,
+) {
+  const router = useRouter();
+  const inFlight = useRef(false);
+  const syncRef = useRef<() => Promise<void>>(async () => {});
+
+  const sync = useCallback(async () => {
+    if (!profileId || inFlight.current) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
+    inFlight.current = true;
+    try {
+      await pollInboxFromOlxAction(profileId, { conversationId });
+      router.refresh();
+    } catch (err) {
+      console.warn(
+        "OLX inbox poll nije uspio:",
+        err instanceof Error ? err.message : err,
+      );
+    } finally {
+      inFlight.current = false;
+    }
+  }, [profileId, conversationId, router]);
+
+  useEffect(() => {
+    syncRef.current = sync;
+  }, [sync]);
+
+  useEffect(() => {
+    if (!profileId) return;
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    function run() {
+      void syncRef.current();
+    }
+
+    function start() {
+      if (timer) return;
+      timer = setInterval(() => {
+        if (document.visibilityState === "visible") run();
+      }, intervalMs);
+    }
+
+    function stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        run();
+        start();
+      } else {
+        stop();
+      }
+    }
+
+    function onFocus() {
+      run();
+    }
+
+    run();
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [profileId, intervalMs]);
 }
