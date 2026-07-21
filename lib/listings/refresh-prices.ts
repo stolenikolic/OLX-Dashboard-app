@@ -68,41 +68,59 @@ function resolveMaxUpdates(explicit?: number): number | null {
   return null;
 }
 
+const PAGE_SIZE = 1000;
+
 async function loadActiveListings(
   admin: Admin,
   profileId: string,
 ): Promise<ActiveListingRow[]> {
-  const { data, error } = await admin
-    .from("listings")
-    .select(
-      `
-      id,
-      product_id,
-      olx_listing_id,
-      posted_price,
-      manual_price,
-      last_price_sync_at,
-      products (
-        id,
-        title,
-        in_feed,
-        categories (
-          olx_category_id
-        )
-      )
-    `,
-    )
-    .eq("profile_id", profileId)
-    .eq("status", "active")
-    .not("olx_listing_id", "is", null)
-    .not("product_id", "is", null)
-    .order("last_price_sync_at", { ascending: true, nullsFirst: true });
+  const all: ActiveListingRow[] = [];
+  let from = 0;
 
-  if (error) {
-    throw new Error(`Učitavanje aktivnih oglasa nije uspjelo: ${error.message}`);
+  for (;;) {
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await admin
+      .from("listings")
+      .select(
+        `
+        id,
+        product_id,
+        olx_listing_id,
+        posted_price,
+        manual_price,
+        last_price_sync_at,
+        products (
+          id,
+          title,
+          in_feed,
+          categories (
+            olx_category_id
+          )
+        )
+      `,
+      )
+      .eq("profile_id", profileId)
+      .eq("status", "active")
+      .not("olx_listing_id", "is", null)
+      .not("product_id", "is", null)
+      .order("last_price_sync_at", { ascending: true, nullsFirst: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(
+        `Učitavanje aktivnih oglasa nije uspjelo: ${error.message}`,
+      );
+    }
+
+    const rows = (data ?? []) as ActiveListingRow[];
+    all.push(...rows);
+
+    if (rows.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
-  return (data ?? []) as ActiveListingRow[];
+  return all;
 }
 
 export async function runRefreshPricesWorker(
