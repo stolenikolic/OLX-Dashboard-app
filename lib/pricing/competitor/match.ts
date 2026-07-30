@@ -1,10 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { matchesRule } from "@/lib/pricing/competitor/match-rules";
-import {
-  normalizeForCategory,
-  normalizeGeneric,
-} from "@/lib/pricing/competitor/normalize-title";
+import { normalizeForCategory } from "@/lib/pricing/competitor/normalize-title";
 import type { CompetitorMatchInfo } from "@/lib/pricing/resolve-listing-price";
 import type { Database } from "@/types/database";
 
@@ -98,7 +95,6 @@ export function findCompetitorMin(
   if (!ourTitle.trim()) return null;
 
   const ourNorm = normalizeForCategory(ourTitle, olxCategoryId);
-  const ourGeneric = normalizeGeneric(ourTitle);
 
   const candidates: CompetitorIndexEntry[] = [];
   if (olxCategoryId != null) {
@@ -121,11 +117,9 @@ export function findCompetitorMin(
       continue;
     }
 
-    const ok =
-      matchesRule(olxCategoryId, ourNorm, entry.norm) ||
-      matchesRule(olxCategoryId, ourGeneric, entry.title);
-
-    if (!ok) continue;
+    // Samo normalizovani naslovi — bez labavog fallbacka na raw title
+    // (to je ranije davalo lažne poklapanja, npr. 5700X → 7400).
+    if (!matchesRule(olxCategoryId, ourNorm, entry.norm)) continue;
 
     if (!best || entry.discounted < best.price) {
       best = {

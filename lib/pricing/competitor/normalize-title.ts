@@ -29,7 +29,19 @@ function searchCpu(itemName: string): string {
     optimized.push(word);
   }
   let result = optimized.join(" ");
-  if (/\bBOX\b/i.test(itemName)) result += " BOX";
+  const upper = itemName.toUpperCase();
+  const resultUpper = result.toUpperCase();
+  if (/\bOEM\b/.test(upper) && !/\bOEM\b/.test(resultUpper)) {
+    result += " OEM";
+  } else if (/\b(SPK|TRAY)\b/.test(upper) && !/\b(SPK|TRAY)\b/.test(resultUpper)) {
+    const m = upper.match(/\b(SPK|TRAY)\b/);
+    if (m) result += ` ${m[1]}`;
+  } else if (
+    (/\bBOX\b/.test(upper) || /\bWOF\b/.test(upper)) &&
+    !/\bBOX\b/.test(resultUpper)
+  ) {
+    result += " BOX";
+  }
   return result;
 }
 

@@ -10,11 +10,28 @@ function wordTokens(s: string): string[] {
     .filter(Boolean);
 }
 
-/** Default: ≥80% of our title words must appear in the competitor title. */
+function hasLetterAndDigit(word: string): boolean {
+  return /[a-zA-Z]/.test(word) && /\d/.test(word);
+}
+
+/** Model-like tokens (e.g. 5700X, I5-12400F, B550) — svi moraju biti u oglasu. */
+function modelTokens(s: string): string[] {
+  return wordTokens(s).filter(hasLetterAndDigit);
+}
+
+/**
+ * Default: ≥80% riječi + SVI alfanumerički model tokeni moraju biti u oglasu.
+ * Sprječava 5700X ↔ 7400 i slične lažne poklapanja.
+ */
 function matchesDefault(ourTitle: string, adTitle: string): boolean {
   const ours = wordTokens(ourTitle);
   if (ours.length === 0) return false;
   const ad = adTitle.toUpperCase();
+
+  for (const m of modelTokens(ourTitle)) {
+    if (!ad.includes(m)) return false;
+  }
+
   let hits = 0;
   for (const w of ours) {
     if (ad.includes(w)) hits++;
@@ -44,7 +61,7 @@ function chooseMouse(our: string, ad: string): boolean {
     return false;
   }
 
-  return true;
+  return matchesDefault(our, ad);
 }
 
 function chooseSsd(our: string, ad: string): boolean {
@@ -75,7 +92,7 @@ function choosePsu(our: string, ad: string): boolean {
   if (a.includes("BE QUIET!") && b.includes("M") && !a.includes("M")) {
     return false;
   }
-  return true;
+  return matchesDefault(our, ad);
 }
 
 function chooseHeadset(our: string, ad: string): boolean {
@@ -84,7 +101,7 @@ function chooseHeadset(our: string, ad: string): boolean {
   for (const f of ["I", "II", "III"]) {
     if (a.includes(f) && !b.includes(f)) return false;
   }
-  return true;
+  return matchesDefault(our, ad);
 }
 
 function chooseWaterCooler(our: string, ad: string): boolean {
@@ -92,8 +109,10 @@ function chooseWaterCooler(our: string, ad: string): boolean {
   const b = ad.toUpperCase();
 
   if (a.includes("DEEPCOOL")) {
-    if ((b.includes("SE") && !a.includes("SE")) ||
-        (/MARRS/i.test(ad) && !/MARRS/i.test(our))) {
+    if (
+      (b.includes("SE") && !a.includes("SE")) ||
+      (/MARRS/i.test(ad) && !/MARRS/i.test(our))
+    ) {
       return false;
     }
   }
@@ -102,7 +121,7 @@ function chooseWaterCooler(our: string, ad: string): boolean {
     return false;
   }
 
-  return true;
+  return matchesDefault(our, ad);
 }
 
 function chooseRam(our: string, ad: string): boolean {
@@ -126,10 +145,105 @@ function chooseRam(our: string, ad: string): boolean {
   return a.split(/\s+/).join(" ") === b.split(/\s+/).join(" ");
 }
 
+type CpuPackage = "BOX" | "OEM" | "TRAY" | "UNKNOWN";
+
+function cpuPackage(title: string): CpuPackage {
+  const t = title.toUpperCase();
+  if (/\bOEM\b/.test(t)) return "OEM";
+  if (/\b(SPK|TRAY)\b/.test(t)) return "TRAY";
+  // WOF = box without cooler — tretiraj kao BOX
+  if (/\bBOX\b/.test(t) || /\bWOF\b/.test(t)) return "BOX";
+  return "UNKNOWN";
+}
+
+type CpuIdentity = {
+  brand: "AMD" | "INTEL" | null;
+  series: string | null;
+  model: string | null;
+  socket: string | null;
+  pkg: CpuPackage;
+};
+
+/**
+ * Izvuci identitet CPU-a (AMD Ryzen / Intel).
+ * Model mora biti tačan: 5700X ≠ 5700 ≠ 5700G.
+ */
+function parseCpuIdentity(title: string): CpuIdentity {
+  const t = title.toUpperCase();
+  const pkg = cpuPackage(t);
+
+  const socketMatch = t.match(/\b(AM[45]|LGA\s?\d{3,4}|SOCKET\s?\d{3,4})\b/);
+  const socket = socketMatch
+    ? socketMatch[1].replace(/\s+/g, "")
+    : null;
+
+  // AMD Ryzen 7 5700X
+  const amd = t.match(/\bRYZEN\s*([3579])\s+([0-9]{3,5}[A-Z]{0,3})\b/);
+  if (amd) {
+    return {
+      brand: "AMD",
+      series: amd[1],
+      model: amd[2],
+      socket,
+      pkg,
+    };
+  }
+
+  // Fallback: sam model tipa 5700X uz AMD
+  if (/\bAMD\b/.test(t)) {
+    const m = t.match(/\b([0-9]{4,5}[A-Z]{0,3})\b/);
+    if (m) {
+      return { brand: "AMD", series: null, model: m[1], socket, pkg };
+    }
+  }
+
+  // Intel Core i5-12400F / I5 12400F / i5-12400
+  const intel = t.match(/\bI([3579])[-\s]?([0-9]{3,5}[A-Z]{0,3})\b/);
+  if (intel) {
+    return {
+      brand: "INTEL",
+      series: intel[1],
+      model: intel[2],
+      socket,
+      pkg,
+    };
+  }
+
+  return { brand: null, series: null, model: null, socket, pkg };
+}
+
+function chooseCpu(our: string, ad: string): boolean {
+  const a = parseCpuIdentity(our);
+  const b = parseCpuIdentity(ad);
+
+  // Bez prepoznatog modela — stroži default (svi model tokeni)
+  if (!a.model) {
+    return matchesDefault(our, ad);
+  }
+  if (!b.model) return false;
+
+  if (a.model !== b.model) return false;
+
+  if (a.brand && b.brand && a.brand !== b.brand) return false;
+  if (a.series && b.series && a.series !== b.series) return false;
+
+  if (a.socket && b.socket && a.socket !== b.socket) return false;
+
+  // BOX ↔ OEM / TRAY se ne miješa
+  if (
+    a.pkg !== "UNKNOWN" &&
+    b.pkg !== "UNKNOWN" &&
+    a.pkg !== b.pkg
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Category-aware match validation.
- * Port of Python choose_item.py (cleaned). Categories without a
- * specific rule use ≥80% word overlap (plan Q24).
+ * CPU i default traže tačan model; labave kategorije + word/model overlap.
  */
 export function matchesRule(
   olxCategoryId: number | null,
@@ -151,6 +265,8 @@ export function matchesRule(
       return chooseHeadset(ourTitle, adTitle);
     case OLX_CAT.memory:
       return chooseRam(ourTitle, adTitle);
+    case OLX_CAT.cpu:
+      return chooseCpu(ourTitle, adTitle);
     default:
       return matchesDefault(ourTitle, adTitle);
   }
