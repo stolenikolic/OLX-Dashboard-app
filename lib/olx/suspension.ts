@@ -15,32 +15,58 @@ export function isAuthFailure(error: unknown): boolean {
   return false;
 }
 
-/**
- * Detekcija OLX dnevnog limita objava.
- * Heuristika po tekstu odgovora — kad bude poznat tačan response, dopuniti pattern.
- */
-export function isDailyPostLimitError(error: unknown): boolean {
+const DAILY_LIMIT_MESSAGE =
+  /prekora[cč]ili\s+ste\s+limit\s+objave\s+oglasa\s+od\s+350/i;
+
+/** Izvuci OLX error.message iz JSON body-a (unicode escape \u010d → č). */
+function olxErrorText(error: unknown): string {
   const parts: string[] = [];
   if (error instanceof OlxApiError) {
-    parts.push(error.message, error.body);
+    parts.push(error.message);
+    if (error.body?.trim()) {
+      try {
+        const parsed = JSON.parse(error.body) as {
+          error?: { message?: string; type?: string; status?: string | number };
+          message?: string;
+        };
+        const msg =
+          parsed.error?.message ??
+          parsed.message ??
+          (typeof parsed.error === "string" ? parsed.error : null);
+        if (msg) parts.push(msg);
+        if (parsed.error?.type) parts.push(parsed.error.type);
+      } catch {
+        parts.push(error.body);
+      }
+    }
   } else if (error instanceof Error) {
     parts.push(error.message);
   } else if (error != null) {
     parts.push(String(error));
   }
+  return parts.join("\n");
+}
 
-  const text = parts.join("\n").toLowerCase();
+/**
+ * Detekcija OLX dnevnog limita objava (350/dan).
+ * Tačan odgovor: 400 bad_request — "Prekoračili ste limit objave oglasa od 350 po danu!"
+ */
+export function isDailyPostLimitError(error: unknown): boolean {
+  if (error instanceof OlxApiError && error.status === 400) {
+    const text = olxErrorText(error);
+    if (DAILY_LIMIT_MESSAGE.test(text)) return true;
+  }
+
+  const text = olxErrorText(error).toLowerCase();
   if (!text.trim()) return false;
 
-  // Uobičajeni / očekivani OLX tekstovi (bez dijakritika i sa njima).
+  if (DAILY_LIMIT_MESSAGE.test(text)) return true;
+
   const patterns = [
-    /prekorac/i,
-    /prekorač/i,
-    /dnevni\s+limit/i,
-    /limit\s+od\s*350/i,
-    /daily\s+limit/i,
-    /listing\s*limit/i,
-    /350\s*oglas/i,
+    /limit\s+objave\s+oglasa\s+od\s+350/,
+    /350\s+po\s+danu/,
+    /dnevni\s+limit/,
+    /daily\s+limit/,
   ];
 
   return patterns.some((re) => re.test(text));
