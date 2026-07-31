@@ -339,7 +339,8 @@ export async function previewCategoryPostAction(
     totalInFeed: stats.totalInFeed,
     alreadyListed: stats.alreadyListed,
     candidates: stats.candidates,
-    willPost: Math.min(stats.candidates, remaining),
+    // Soft info — lokalni 350 ne blokira; OLX limit staje worker.
+    willPost: stats.candidates,
     postedToday,
     dailyLimit,
     remaining,

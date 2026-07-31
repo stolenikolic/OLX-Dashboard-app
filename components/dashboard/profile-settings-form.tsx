@@ -181,8 +181,8 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
             </div>
           </dl>
           <p className="text-xs text-zinc-500">
-            OLX limit 350 broji se u rolling 24h od prvog uspješnog posta u
-            ciklusu — ne od ponoći.
+            Soft brojač: rolling 24h od prvog uspješnog posta. Hard limit
+            forsira OLX (worker staje na njihovoj grešci, ne lokalno na 350).
           </p>
         </div>
 

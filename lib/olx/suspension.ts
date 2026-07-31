@@ -15,6 +15,37 @@ export function isAuthFailure(error: unknown): boolean {
   return false;
 }
 
+/**
+ * Detekcija OLX dnevnog limita objava.
+ * Heuristika po tekstu odgovora — kad bude poznat tačan response, dopuniti pattern.
+ */
+export function isDailyPostLimitError(error: unknown): boolean {
+  const parts: string[] = [];
+  if (error instanceof OlxApiError) {
+    parts.push(error.message, error.body);
+  } else if (error instanceof Error) {
+    parts.push(error.message);
+  } else if (error != null) {
+    parts.push(String(error));
+  }
+
+  const text = parts.join("\n").toLowerCase();
+  if (!text.trim()) return false;
+
+  // Uobičajeni / očekivani OLX tekstovi (bez dijakritika i sa njima).
+  const patterns = [
+    /prekorac/i,
+    /prekorač/i,
+    /dnevni\s+limit/i,
+    /limit\s+od\s*350/i,
+    /daily\s+limit/i,
+    /listing\s*limit/i,
+    /350\s*oglas/i,
+  ];
+
+  return patterns.some((re) => re.test(text));
+}
+
 export async function suspendProfile(
   admin: Admin,
   profileId: string,

@@ -357,11 +357,12 @@ export function CategoryPriorityForm({
                 Može se postaviti (bez duplikata): {preview.candidates}
               </li>
               <li>
-                Preostalo danas: {preview.remaining} / {preview.dailyLimit}{" "}
-                (postavljeno {preview.postedToday})
+                Soft brojač (24h): postavljeno {preview.postedToday} /{" "}
+                {preview.dailyLimit} (preostalo ~{preview.remaining}) — limit
+                forsira OLX
               </li>
               <li className="font-medium text-zinc-900">
-                U ovom runu: {preview.willPost} oglasa
+                Kandidata za postanje: {preview.willPost}
               </li>
             </ul>
             <div className="mt-5 flex justify-end gap-2">
@@ -378,11 +379,7 @@ export function CategoryPriorityForm({
               </button>
               <button
                 type="button"
-                disabled={
-                  pending ||
-                  preview.remaining <= 0 ||
-                  preview.candidates <= 0
-                }
+                disabled={pending || preview.candidates <= 0}
                 onClick={confirmDispatch}
                 className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
               >

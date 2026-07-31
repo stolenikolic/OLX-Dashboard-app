@@ -205,6 +205,8 @@ export async function importListingsFromOlx(
       continue;
     }
 
+    // Ne diraj last_published_at — to je samo za stvarni worker publish
+    // (inače import napuhava "posted today" brojač).
     const { error } = await admin.from("listings").upsert(
       {
         profile_id: profileId,
@@ -213,7 +215,6 @@ export async function importListingsFromOlx(
         olx_listing_id: olx.id,
         status: olx.status === "active" ? "active" : "draft",
         posted_price: olx.price,
-        last_published_at: new Date().toISOString(),
         error: null,
         updated_at: new Date().toISOString(),
       },

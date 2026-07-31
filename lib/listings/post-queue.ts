@@ -72,7 +72,8 @@ export async function getPostingCategoryQueue(
 }
 
 /**
- * Broj objava u tekućem OLX 24h prozoru (od posting_window_started_at).
+ * Soft brojač objava u tekućem 24h prozoru (od posting_window_started_at).
+ * Samo za dashboard/log — NE koristi se kao hard stop (OLX forsira limit).
  * Ako prozor nije aktivan → 0 (novi ciklus).
  */
 export async function countPostedToday(

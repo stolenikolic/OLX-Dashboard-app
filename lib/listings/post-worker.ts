@@ -13,7 +13,11 @@ import {
   type CategoryQueueItem,
 } from "@/lib/listings/post-queue";
 import { ensurePostingWindowStarted } from "@/lib/listings/post-schedule";
-import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
+import {
+  handleOlxAuthFailure,
+  isAuthFailure,
+  isDailyPostLimitError,
+} from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
   createClientForProfile,
@@ -167,37 +171,31 @@ export async function runPostListingsWorker(
     }
   }
 
+  // Soft counter za log/dashboard — NE forsiramo lokalni stop na 350.
+  // Worker staje tek kad OLX vrati grešku dnevnog limita.
   const postedToday = await countPostedToday(admin, profile.id);
   const dailyLimit = profile.daily_post_limit;
-  const dailyRemaining = Math.max(0, dailyLimit - postedToday);
-  const budget = Math.min(maxPosts, dailyRemaining);
+  const budget = maxPosts;
 
   const result: PostWorkerResult = {
     importResult,
     posted: 0,
     skipped: 0,
     failed: 0,
-    remainingDaily: dailyRemaining,
+    remainingDaily: Math.max(0, dailyLimit - postedToday),
     cancelled: false,
     errors: [],
   };
 
-  if (budget <= 0) {
-    const windowEndIso = await getActivePostingWindowEndIso(admin, profile.id);
-    const windowHint = windowEndIso
-      ? ` OLX 24h prozor još otvoren do ${windowEndIso}.`
-      : "";
-    console.log(
-      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}). Nema novih postova.${windowHint}`,
-    );
-    await logItem(
-      admin,
-      jobRunId,
-      "info",
-      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}).${windowHint}`,
-    );
-    return result;
-  }
+  console.log(
+    `Soft brojač objava u 24h prozoru: ${postedToday}/${dailyLimit} (limit forsira OLX, ne mi).`,
+  );
+  await logItem(
+    admin,
+    jobRunId,
+    "info",
+    `Soft brojač: ${postedToday}/${dailyLimit} u 24h prozoru — postajemo dok OLX ne odbije.`,
+  );
 
   if (dryRun) {
     console.log(`DRY RUN — budget=${budget} novih oglasa (ne šalje se na OLX).`);
@@ -218,13 +216,15 @@ export async function runPostListingsWorker(
 
   await logItem(admin, jobRunId, "info", "Postavljanje pokrenuto", {
     budget,
-    dailyRemaining,
+    postedToday,
+    dailyLimit,
     skipImport: options.skipImport ?? false,
     categoryId: options.categoryId ?? null,
     categories: categories.map((c) => c.slug),
   });
 
   let remaining = budget;
+  let hitOlxDailyLimit = false;
 
   for (const category of categories) {
     if (remaining <= 0) break;
@@ -363,6 +363,34 @@ export async function runPostListingsWorker(
           await handleOlxAuthFailure(admin, profile.id, profile.name, err);
           throw err;
         }
+        if (isDailyPostLimitError(err)) {
+          hitOlxDailyLimit = true;
+          const message = err instanceof Error ? err.message : String(err);
+          const windowEndIso = await getActivePostingWindowEndIso(
+            admin,
+            profile.id,
+          );
+          const windowHint = windowEndIso
+            ? ` Prozor do ${windowEndIso}.`
+            : "";
+          console.warn(
+            `OLX dnevni limit — prekidam postanje. Objavljeno u runu: ${result.posted}. Soft brojač: ${postedToday + result.posted}/${dailyLimit}.${windowHint}`,
+          );
+          await logItem(
+            admin,
+            jobRunId,
+            "warn",
+            `OLX dnevni limit dostignut — stop.${windowHint}`,
+            {
+              productId,
+              error: message,
+              postedInRun: result.posted,
+              softPostedToday: postedToday + result.posted,
+              dailyLimit,
+            },
+          );
+          break;
+        }
         const message = err instanceof Error ? err.message : String(err);
         result.failed++;
         result.errors.push(`${productId}: ${message}`);
@@ -375,10 +403,13 @@ export async function runPostListingsWorker(
       }
     }
 
-    if (result.cancelled) break;
+    if (result.cancelled || hitOlxDailyLimit) break;
   }
 
-  result.remainingDaily = Math.max(0, dailyRemaining - result.posted);
+  result.remainingDaily = Math.max(
+    0,
+    dailyLimit - (postedToday + result.posted),
+  );
   return result;
 }
 
