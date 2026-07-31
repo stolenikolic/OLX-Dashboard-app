@@ -221,6 +221,27 @@ export function normalizeCameraFromMegapixel(s: string): string | null {
   return "Ostalo";
 }
 
+/** Digitalni fotoaparati — Megapiksela (#527). */
+export function normalizeMegapixelOlxRange(s: string): string | null {
+  const n = extractNumber(s);
+  if (!n) return null;
+  const mp = Number(n);
+  if (!Number.isFinite(mp) || mp <= 0) return null;
+  if (mp < 3) return "do 3.0";
+  if (mp < 4) return "3.0 do 3.9";
+  if (mp < 5) return "4.0 do 4.9";
+  if (mp < 6) return "5.0 do 5.9";
+  if (mp < 7) return "6.0 do 6.9";
+  if (mp < 8) return "7.0 do 7.9";
+  if (mp < 10) return "8.0 do 9.9";
+  if (mp < 12) return "10.0 do 11.9";
+  if (mp < 14) return "12.0 do 13.9";
+  if (mp < 16) return "14.0 do 15.9";
+  if (mp < 18) return "16.0 do 17.9";
+  if (mp >= 18) return "18 i više";
+  return "Ostalo";
+}
+
 /** WiFi standard iz feed `wifi` polja. */
 export function normalizeWifiStandard(s: string): string | null {
   const t = s.toLowerCase();
@@ -479,7 +500,7 @@ export function transformSpecValue(
       return normalizeOlxColor(s);
 
     case "megapixel":
-      return normalizeCameraFromMegapixel(s);
+      return normalizeMegapixelOlxRange(s);
 
     case "__derived_prikljucak":
     case "__derived_keyboard_prikljucak":

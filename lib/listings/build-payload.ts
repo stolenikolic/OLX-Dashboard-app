@@ -1,11 +1,12 @@
 import { renderDescription } from "@/lib/listings/description";
+import { sanitizeOlxTitle } from "@/lib/listings/sanitize-title";
 import type { OlxListingAttribute } from "@/lib/olx/types";
 import type { CreateListingPayload } from "@/lib/olx/types";
 
 const OLX_TITLE_MAX = 65;
 
 export function truncateOlxTitle(title: string): string {
-  const t = title.trim();
+  const t = sanitizeOlxTitle(title);
   if (t.length <= OLX_TITLE_MAX) return t;
   const cut = t.slice(0, OLX_TITLE_MAX);
   const lastSpace = cut.lastIndexOf(" ");
