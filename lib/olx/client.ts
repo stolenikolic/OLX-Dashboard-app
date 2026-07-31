@@ -35,6 +35,37 @@ export class OlxApiError extends Error {
   }
 }
 
+/** Poruka + OLX response body (za konzolu / job log). */
+export function formatOlxError(error: unknown): string {
+  if (error instanceof OlxApiError) {
+    const body = error.body?.trim();
+    return body
+      ? `${error.message} | body: ${body}`
+      : error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+export function olxErrorDetails(error: unknown): {
+  message: string;
+  status: number | null;
+  body: string | null;
+} {
+  if (error instanceof OlxApiError) {
+    return {
+      message: error.message,
+      status: error.status,
+      body: error.body?.trim() || null,
+    };
+  }
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    status: null,
+    body: null,
+  };
+}
+
 export type OlxClientConfig = {
   baseUrl?: string;
   /** Bearer token (preferred auth). */
@@ -140,7 +171,7 @@ export class OlxClient {
       throw new OlxApiError(
         `OLX API ${response.status} ${response.statusText} za ${path}`,
         response.status,
-        text.slice(0, 500),
+        text.slice(0, 2000),
       );
     }
 

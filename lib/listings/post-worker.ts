@@ -30,7 +30,11 @@ import {
   isJobCancelRequested,
   startJobRun,
 } from "@/lib/workers/job-log";
-import type { OlxClient } from "@/lib/olx/client";
+import {
+  formatOlxError,
+  olxErrorDetails,
+  type OlxClient,
+} from "@/lib/olx/client";
 import type { Database, Json } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -365,7 +369,7 @@ export async function runPostListingsWorker(
         }
         if (isDailyPostLimitError(err)) {
           hitOlxDailyLimit = true;
-          const message = err instanceof Error ? err.message : String(err);
+          const details = olxErrorDetails(err);
           const windowEndIso = await getActivePostingWindowEndIso(
             admin,
             profile.id,
@@ -374,7 +378,7 @@ export async function runPostListingsWorker(
             ? ` Prozor do ${windowEndIso}.`
             : "";
           console.warn(
-            `OLX dnevni limit — prekidam postanje. Objavljeno u runu: ${result.posted}. Soft brojač: ${postedToday + result.posted}/${dailyLimit}.${windowHint}`,
+            `OLX dnevni limit — prekidam postanje. Objavljeno u runu: ${result.posted}. Soft brojač: ${postedToday + result.posted}/${dailyLimit}.${windowHint}\n${formatOlxError(err)}`,
           );
           await logItem(
             admin,
@@ -383,7 +387,9 @@ export async function runPostListingsWorker(
             `OLX dnevni limit dostignut — stop.${windowHint}`,
             {
               productId,
-              error: message,
+              error: details.message,
+              olxStatus: details.status,
+              olxBody: details.body,
               postedInRun: result.posted,
               softPostedToday: postedToday + result.posted,
               dailyLimit,
@@ -391,13 +397,16 @@ export async function runPostListingsWorker(
           );
           break;
         }
-        const message = err instanceof Error ? err.message : String(err);
+        const details = olxErrorDetails(err);
+        const message = formatOlxError(err);
         result.failed++;
         result.errors.push(`${productId}: ${message}`);
         console.error(`Greška za proizvod ${productId}: ${message}`);
         await logItem(admin, jobRunId, "error", `Greška: ${message}`, {
           productId,
-          error: message,
+          error: details.message,
+          olxStatus: details.status,
+          olxBody: details.body,
           categorySlug: category.slug,
         });
       }
