@@ -775,6 +775,8 @@ export type Database = {
           olx_token_expires_at: string | null
           olx_user_id: number | null
           olx_username: string | null
+          post_schedule_time: string | null
+          posting_window_started_at: string | null
           price_mode: Database["public"]["Enums"]["price_mode"]
           price_refresh_days: number
           proxy_url: string | null
@@ -806,6 +808,8 @@ export type Database = {
           olx_token_expires_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          post_schedule_time?: string | null
+          posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
           proxy_url?: string | null
@@ -837,6 +841,8 @@ export type Database = {
           olx_token_expires_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          post_schedule_time?: string | null
+          posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
           proxy_url?: string | null

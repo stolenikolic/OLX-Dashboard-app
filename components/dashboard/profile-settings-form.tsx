@@ -2,14 +2,43 @@
 
 import { useState, useTransition } from "react";
 
-import { updateProfileSettingsAction } from "@/lib/dashboard/actions";
+import {
+  assignRandomPostScheduleAction,
+  updateProfileSettingsAction,
+} from "@/lib/dashboard/actions";
+import {
+  formatScheduleTime,
+  getNextEligibleAt,
+  getWindowEndAt,
+} from "@/lib/listings/post-schedule-time";
 import type { Database } from "@/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
+function formatSarajevo(iso: string | null): string {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("bs-BA", {
+    timeZone: "Europe/Sarajevo",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(iso));
+}
+
 export function ProfileSettingsForm({ profile }: { profile: Profile }) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  const [scheduleTime, setScheduleTime] = useState(
+    formatScheduleTime(profile.post_schedule_time) ?? "",
+  );
+
+  const nextEligible = getNextEligibleAt(
+    {
+      post_schedule_time: scheduleTime || profile.post_schedule_time,
+      posting_window_started_at: profile.posting_window_started_at,
+    },
+    new Date(),
+  );
+  const windowEnd = getWindowEndAt(profile.posting_window_started_at);
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -22,6 +51,7 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
           kurs: Number(fd.get("kurs")),
           kurs_uvoz: Number(fd.get("kurs_uvoz")),
           daily_post_limit: Number(fd.get("daily_post_limit")),
+          post_schedule_time: String(fd.get("post_schedule_time") ?? ""),
           price_mode: String(fd.get("price_mode")) as Profile["price_mode"],
           description_template: String(fd.get("description_template") ?? ""),
           auth_method: String(fd.get("auth_method")) as Profile["auth_method"],
@@ -33,6 +63,18 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
           proxy_url: String(fd.get("proxy_url") ?? ""),
         });
         setMessage("Sačuvano.");
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Greška");
+      }
+    });
+  }
+
+  function onAssignRandom() {
+    startTransition(async () => {
+      try {
+        const time = await assignRandomPostScheduleAction(profile.id);
+        setScheduleTime(formatScheduleTime(time) ?? "");
+        setMessage(`Dodijeljen termin ${formatScheduleTime(time)}.`);
       } catch (err) {
         setMessage(err instanceof Error ? err.message : "Greška");
       }
@@ -95,6 +137,55 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
             />
           </label>
         </div>
+
+        <div className="space-y-3 rounded-lg border border-zinc-100 bg-zinc-50 p-4">
+          <h3 className="text-sm font-medium text-zinc-800">
+            Raspored postavljanja (Europe/Sarajevo)
+          </h3>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block text-sm">
+              Vrijeme postavljanja
+              <input
+                name="post_schedule_time"
+                type="time"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                className="mt-1 w-full rounded-lg border bg-white px-3 py-2"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onAssignRandom}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Dodijeli random termin
+            </button>
+          </div>
+          <dl className="grid gap-2 text-sm text-zinc-600 sm:grid-cols-2">
+            <div>
+              <dt className="text-zinc-500">Prozor od</dt>
+              <dd>{formatSarajevo(profile.posting_window_started_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">Prozor do</dt>
+              <dd>
+                {windowEnd ? formatSarajevo(windowEnd.toISOString()) : "—"}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-zinc-500">Sljedeći run ne prije</dt>
+              <dd>
+                {nextEligible ? formatSarajevo(nextEligible.toISOString()) : "—"}
+              </dd>
+            </div>
+          </dl>
+          <p className="text-xs text-zinc-500">
+            OLX limit 350 broji se u rolling 24h od prvog uspješnog posta u
+            ciklusu — ne od ponoći.
+          </p>
+        </div>
+
         <label className="block text-sm">
           Režim obnavljanja cijena
           <select

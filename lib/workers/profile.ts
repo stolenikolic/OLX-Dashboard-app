@@ -8,7 +8,8 @@ import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
 
-const TOKEN_TTL_MS = 23 * 60 * 60 * 1000;
+/** Soft hint u DB; stvarni reuse se oslanja na /me, ne na ovaj TTL. */
+const TOKEN_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 
 export type ProfileForWorker = {
   id: string;
@@ -199,15 +200,8 @@ export async function createClientForProfile(
     );
   }
 
-  const expiresAt = profile.olx_token_expires_at
-    ? new Date(profile.olx_token_expires_at)
-    : null;
-
-  if (
-    profile.olx_bearer_token &&
-    expiresAt &&
-    expiresAt.getTime() > Date.now() + 60_000
-  ) {
+  // Koristi keširani token dok OLX ga ne odbije — ne forsiraj login po lokalnom TTL-u.
+  if (profile.olx_bearer_token) {
     const cached = new OlxClient(
       buildClientConfig(profile, identity, profile.olx_bearer_token),
     );
@@ -228,6 +222,9 @@ export async function createClientForProfile(
       console.warn(
         `Keširani token za "${profile.name}" nije validan — novi login.`,
       );
+      await clearProfileTokenCache(admin, profile.id);
+      profile.olx_bearer_token = null;
+      profile.olx_token_expires_at = null;
       await notifyAdmin({
         subject: `[OLX Dashboard] Token istekao: ${profile.name}`,
         body: `Keširani OLX token za profil "${profile.name}" nije validan. Izvršava se novi login.`,

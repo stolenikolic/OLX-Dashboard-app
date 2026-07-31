@@ -55,16 +55,6 @@ jobs:
           cache: "npm"
       - run: npm ci
 
-      - name: Stagger jitter (deterministički po profilu)
-        env:
-          PROFILE_ID: ${{ matrix.profile.id }}
-        run: |
-          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
-          SEED=$((16#$HASH))
-          DELAY=$((SEED % 1800))
-          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
-          sleep "$DELAY"
-
       - name: Sync messages for profile
         env:
           PROFILE_ID: ${{ matrix.profile.id }}

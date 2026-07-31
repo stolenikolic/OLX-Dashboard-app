@@ -23,6 +23,10 @@ import {
   countPostedToday,
 } from "@/lib/listings/post-queue";
 import {
+  assignPostScheduleTime,
+  parseScheduleTime,
+} from "@/lib/listings/post-schedule";
+import {
   createClientForProfileId,
   createClientForProfileRecord,
   loadProfileForWorker,
@@ -617,6 +621,7 @@ export async function updateProfileSettingsAction(
     kurs: number;
     kurs_uvoz: number;
     daily_post_limit: number;
+    post_schedule_time: string;
     price_mode: Database["public"]["Enums"]["price_mode"];
     description_template: string;
     auth_method: Database["public"]["Enums"]["olx_auth_method"];
@@ -631,12 +636,20 @@ export async function updateProfileSettingsAction(
   await requireAdmin();
   const admin = createAdminClient();
 
+  let postScheduleTime: string | null = null;
+  const rawTime = form.post_schedule_time.trim();
+  if (rawTime) {
+    const { hour, minute } = parseScheduleTime(rawTime);
+    postScheduleTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
+  }
+
   const update: Database["public"]["Tables"]["profiles"]["Update"] = {
     name: form.name.trim(),
     status: form.status,
     kurs: form.kurs,
     kurs_uvoz: form.kurs_uvoz,
     daily_post_limit: form.daily_post_limit,
+    post_schedule_time: postScheduleTime,
     price_mode: form.price_mode,
     description_template: form.description_template || null,
     auth_method: form.auth_method,
@@ -662,6 +675,17 @@ export async function updateProfileSettingsAction(
 
   revalidatePath(`/profili/${profileId}/podesavanja`);
   revalidatePath("/");
+}
+
+export async function assignRandomPostScheduleAction(
+  profileId: string,
+): Promise<string> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const time = await assignPostScheduleTime(admin, profileId);
+  revalidatePath(`/profili/${profileId}/podesavanja`);
+  revalidatePath("/");
+  return time;
 }
 
 export async function updateCategoryPriorityAction(

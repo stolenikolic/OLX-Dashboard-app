@@ -68,6 +68,17 @@ export function ProfileCard({
               </span>
             </dd>
           </div>
+          {profile.postScheduleTime && (
+            <div className="col-span-2">
+              <dt className="text-zinc-500">Termin postavljanja</dt>
+              <dd className="font-medium text-zinc-800">
+                {profile.postScheduleTime}
+                <span className="ml-1 text-xs font-normal text-zinc-400">
+                  (Sarajevo)
+                </span>
+              </dd>
+            </div>
+          )}
           {profile.refreshFreeLimit != null && (
             <div className="col-span-2">
               <dt className="text-zinc-500">Besplatna obnavljanja (mjesec)</dt>

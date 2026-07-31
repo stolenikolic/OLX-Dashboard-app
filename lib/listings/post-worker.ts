@@ -5,12 +5,14 @@ import { postProductListing } from "@/lib/listings/post-listing";
 import {
   countPostedToday,
   findCandidateProductIds,
+  getActivePostingWindowEndIso,
   getPostingCategoryQueue,
   loadListedProductIds,
   randomDelayMs,
   sleep,
   type CategoryQueueItem,
 } from "@/lib/listings/post-queue";
+import { ensurePostingWindowStarted } from "@/lib/listings/post-schedule";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
@@ -181,14 +183,18 @@ export async function runPostListingsWorker(
   };
 
   if (budget <= 0) {
+    const windowEndIso = await getActivePostingWindowEndIso(admin, profile.id);
+    const windowHint = windowEndIso
+      ? ` OLX 24h prozor još otvoren do ${windowEndIso}.`
+      : "";
     console.log(
-      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}). Nema novih postova.`,
+      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}). Nema novih postova.${windowHint}`,
     );
     await logItem(
       admin,
       jobRunId,
       "info",
-      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}).`,
+      `Dnevni limit iskorišten (${postedToday}/${dailyLimit}).${windowHint}`,
     );
     return result;
   }
@@ -317,6 +323,21 @@ export async function runPostListingsWorker(
         result.posted++;
         listedIds.add(productId);
         remaining--;
+
+        if (result.posted === 1) {
+          const windowStart = await ensurePostingWindowStarted(
+            admin,
+            profile.id,
+          );
+          await logItem(
+            admin,
+            jobRunId,
+            "info",
+            `OLX 24h prozor započet: ${windowStart}`,
+            { posting_window_started_at: windowStart },
+          );
+        }
+
         console.log(
           `Objavljeno OLX #${posted.olxListingId} (${result.posted}/${budget}) — ${posted.title}`,
         );

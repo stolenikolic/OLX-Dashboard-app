@@ -1,12 +1,13 @@
 # =============================================================================
 # Post Listings — postavlja nove oglase po profilu (bez duplikata).
-# Ručno: opcionalno profile_id + category_id (jedna kategorija, skip import).
+# Cron svakih 15 min: samo profili kojima je due fiksni termin + OLX 24h prozor.
+# Ručno: opcionalno profile_id (bypass schedule) + category_id (skip import).
 # =============================================================================
 name: post-listings
 
 on:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       profile_id:
@@ -39,18 +40,18 @@ jobs:
           cache: "npm"
       - run: npm ci
       - id: list
-        name: Lista aktivnih profila
+        name: Lista due profila za postavljanje
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
-        run: npm run job:list-active-profiles
+        run: npm run job:list-due-post-profiles
 
   post:
     needs: prepare
     if: ${{ needs.prepare.outputs.has_profiles == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -62,17 +63,6 @@ jobs:
           node-version: "22"
           cache: "npm"
       - run: npm ci
-
-      - name: Stagger jitter (preskoči za category run)
-        if: ${{ github.event.inputs.category_id == '' || github.event.inputs.category_id == null }}
-        env:
-          PROFILE_ID: ${{ matrix.profile.id }}
-        run: |
-          HASH=$(printf '%s' "$PROFILE_ID" | sha256sum | cut -c1-8)
-          SEED=$((16#$HASH))
-          DELAY=$((SEED % 2700))
-          echo "Profil $PROFILE_ID — čekam ${DELAY}s"
-          sleep "$DELAY"
 
       - name: Post listings for profile
         env:

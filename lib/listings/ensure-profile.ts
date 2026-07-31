@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { assignPostScheduleTime } from "@/lib/listings/post-schedule";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -10,11 +11,16 @@ export async function ensureTechZoneProfile(admin: Admin): Promise<string> {
 
   const { data: existing } = await admin
     .from("profiles")
-    .select("id")
+    .select("id, post_schedule_time")
     .eq("olx_username", username)
     .maybeSingle();
 
-  if (existing) return existing.id;
+  if (existing) {
+    if (!existing.post_schedule_time) {
+      await assignPostScheduleTime(admin, existing.id);
+    }
+    return existing.id;
+  }
 
   const { data: inserted, error } = await admin
     .from("profiles")
@@ -37,5 +43,6 @@ export async function ensureTechZoneProfile(admin: Admin): Promise<string> {
     throw new Error(`Kreiranje profila nije uspjelo: ${error?.message}`);
   }
 
+  await assignPostScheduleTime(admin, inserted.id);
   return inserted.id;
 }

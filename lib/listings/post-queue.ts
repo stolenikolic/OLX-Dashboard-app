@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  getWindowEndAt,
+  isPostingWindowOpen,
+} from "@/lib/listings/post-schedule-time";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -67,18 +71,36 @@ export async function getPostingCategoryQueue(
   }));
 }
 
+/**
+ * Broj objava u tekućem OLX 24h prozoru (od posting_window_started_at).
+ * Ako prozor nije aktivan → 0 (novi ciklus).
+ */
 export async function countPostedToday(
   admin: Admin,
   profileId: string,
 ): Promise<number> {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("posting_window_started_at")
+    .eq("id", profileId)
+    .single();
+
+  if (profileError) {
+    throw new Error(
+      `Brojanje dnevnih oglasa nije uspjelo: ${profileError.message}`,
+    );
+  }
+
+  const windowStart = profile?.posting_window_started_at ?? null;
+  if (!isPostingWindowOpen(windowStart)) {
+    return 0;
+  }
 
   const { count, error } = await admin
     .from("listings")
     .select("*", { count: "exact", head: true })
     .eq("profile_id", profileId)
-    .gte("last_published_at", startOfDay.toISOString())
+    .gte("last_published_at", windowStart!)
     .in("status", ["active", "draft"]);
 
   if (error) {
@@ -86,6 +108,28 @@ export async function countPostedToday(
   }
 
   return count ?? 0;
+}
+
+/** ISO kraj tekućeg prozora, ili null ako prozor nije aktivan. */
+export async function getActivePostingWindowEndIso(
+  admin: Admin,
+  profileId: string,
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("posting_window_started_at")
+    .eq("id", profileId)
+    .single();
+
+  if (error) {
+    throw new Error(`Čitanje posting window nije uspjelo: ${error.message}`);
+  }
+
+  const end = getWindowEndAt(data?.posting_window_started_at ?? null);
+  if (!end || !isPostingWindowOpen(data?.posting_window_started_at ?? null)) {
+    return null;
+  }
+  return end.toISOString();
 }
 
 const PAGE_SIZE = 1000;

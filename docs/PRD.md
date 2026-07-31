@@ -192,11 +192,25 @@ inače (inherit)                          -> kategorija.import_flag
 ## 7. Postavljanje oglasa
 
 ### 7.1 Raspored i limiti
-- Pokreće se **svakih 24h** (GitHub Actions), po profilu, u **različitim terminima po profilu**
-  + random jitter (§10).
-- **Dnevni limit: 350 oglasa po profilu.**
+- GitHub Actions cron **svakih 15 min** bira samo profile kojima je due fiksni
+  `post_schedule_time` (Europe/Sarajevo) i isteklo je **24h od**
+  `posting_window_started_at` (prvi uspješan publish u ciklusu).
+- Termin se **jednom** dodijeli (random ili ručno) i ostaje stabilan — nema in-job
+  sleep jittera.
+- **Dnevni limit: 350 oglasa po profilu** (rolling 24h od sidra prozora, ne od ponoći).
 - Postavljanje ide **kategorija-po-kategorija**, redoslijedom/prioritetom **definisanim po
   profilu**, dok se ne potroši dnevni limit.
+
+### 7.1.1 Operativna pravila (za implementaciju)
+- Polja: `profiles.post_schedule_time` (HH:MM, Europe/Sarajevo),
+  `profiles.posting_window_started_at` (prvi uspješan publish u ciklusu).
+- Due: `now >= max(danas_u_post_schedule_time, posting_window_started_at + 24h)`.
+  Bez prozora → samo schedule time.
+- `workflow_dispatch` + `profile_id` zaobilazi schedule; worker i dalje poštuje
+  `countPostedToday` (od sidra prozora, ne od ponoći).
+- Kod: `lib/listings/post-schedule-time.ts`, `lib/listings/post-schedule.ts`,
+  `scripts/job-list-due-post-profiles.ts`, `.github/workflows/post-listings.yml`.
+- Nema GHA sleep jittera; timeout post joba **120 min**.
 
 ### 7.2 Sprječavanje duplikata
 - Baza vodi vezu `feed_product_id (uuid) → olx_listing_id` **po profilu** (`listings`).
@@ -276,8 +290,8 @@ IP adresa, identitet naloga, ponašanje, `device_name`/`User-Agent`. Mjere:
   *dedicated/static* IP po profilu, nadogradiv na rezidencijalni/mobilni bez izmjene koda.
 - **Jedinstven `device_name` + `User-Agent` po profilu** (auto-generisani, stabilni).
 - **Različite cijene** (random ±%) + **različit redoslijed kategorija** po profilu.
-- **Različiti termini izvršavanja** po profilu + random pauze između zahtjeva (human-like
-  throttling).
+- **Fiksni termini izvršavanja** po profilu (`post_schedule_time`) + random pauze između
+  zahtjeva (human-like throttling). Bez sleep staggera unutar GHA joba.
 - Prirodno razdvojeni nalozi (svaki profil = svoj radnik, email, telefon, plaćanje).
 
 ---

@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  formatScheduleTime,
+  getNextEligibleAt,
+  isPostingWindowOpen,
+} from "@/lib/listings/post-schedule-time";
 import type { Database } from "@/types/database";
 
 type Client = SupabaseClient<Database>;
@@ -12,6 +17,9 @@ export type ProfileSummary = {
   daily_post_limit: number;
   activeListings: number;
   postedToday: number;
+  postScheduleTime: string | null;
+  postingWindowStartedAt: string | null;
+  nextEligibleAt: string | null;
   refreshFreeLimit: number | null;
   refreshFreeCount: number | null;
 };
@@ -66,41 +74,44 @@ export type JobRunRow = {
   profileName: string | null;
 };
 
-function startOfTodayIso(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
 export async function fetchProfileSummaries(
   supabase: Client,
 ): Promise<ProfileSummary[]> {
   const { data: profiles, error } = await supabase
     .from("profiles")
     .select(
-      "id, name, status, olx_username, daily_post_limit, refresh_free_limit, refresh_free_count",
+      "id, name, status, olx_username, daily_post_limit, refresh_free_limit, refresh_free_count, post_schedule_time, posting_window_started_at",
     )
     .order("name");
 
   if (error || !profiles) return [];
 
-  const todayStart = startOfTodayIso();
+  const now = new Date();
   const summaries: ProfileSummary[] = [];
 
   for (const profile of profiles) {
+    const windowOpen = isPostingWindowOpen(
+      profile.posting_window_started_at,
+      now,
+    );
+
     const [activeRes, todayRes] = await Promise.all([
       supabase
         .from("listings")
         .select("*", { count: "exact", head: true })
         .eq("profile_id", profile.id)
         .eq("status", "active"),
-      supabase
-        .from("listings")
-        .select("*", { count: "exact", head: true })
-        .eq("profile_id", profile.id)
-        .gte("last_published_at", todayStart)
-        .in("status", ["active", "draft"]),
+      windowOpen && profile.posting_window_started_at
+        ? supabase
+            .from("listings")
+            .select("*", { count: "exact", head: true })
+            .eq("profile_id", profile.id)
+            .gte("last_published_at", profile.posting_window_started_at)
+            .in("status", ["active", "draft"])
+        : Promise.resolve({ count: 0 }),
     ]);
+
+    const nextEligible = getNextEligibleAt(profile, now);
 
     summaries.push({
       id: profile.id,
@@ -110,6 +121,9 @@ export async function fetchProfileSummaries(
       daily_post_limit: profile.daily_post_limit,
       activeListings: activeRes.count ?? 0,
       postedToday: todayRes.count ?? 0,
+      postScheduleTime: formatScheduleTime(profile.post_schedule_time),
+      postingWindowStartedAt: profile.posting_window_started_at,
+      nextEligibleAt: nextEligible?.toISOString() ?? null,
       refreshFreeLimit: profile.refresh_free_limit,
       refreshFreeCount: profile.refresh_free_count,
     });
