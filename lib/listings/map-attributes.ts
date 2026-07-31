@@ -64,13 +64,23 @@ export async function mapProductAttributes(
     if (feedStr && valueMap.has(feedStr)) {
       olxValue = valueMap.get(feedStr)!;
     } else if (feedStr) {
-      olxValue = transformSpecValue(m.spec_key, raw);
-    } else if (m.fallback_value) {
-      olxValue = m.fallback_value;
-    } else if (m.required) {
-      throw new Error(
-        `Obavezan atribut "${m.spec_key}" (#${m.olx_attribute_id}) nema vrijednost u feed-u.`,
-      );
+      const transformed = transformSpecValue(m.spec_key, raw);
+      if (transformed != null && transformed !== "") {
+        olxValue = valueMap.has(transformed)
+          ? valueMap.get(transformed)!
+          : transformed;
+      }
+    }
+
+    // Obavezni atributi uvijek imaju rezervni default ako feed/transform ne daju vrijednost.
+    if (olxValue == null || olxValue === "") {
+      if (m.fallback_value) {
+        olxValue = m.fallback_value;
+      } else if (m.required) {
+        throw new Error(
+          `Obavezan atribut "${m.spec_key}" (#${m.olx_attribute_id}) nema vrijednost u feed-u.`,
+        );
+      }
     }
 
     if (olxValue != null && olxValue !== "") {

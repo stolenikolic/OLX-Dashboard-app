@@ -15,8 +15,15 @@ const SLUGS = [
   "vazudsna-hladjenja",
   "misevi",
   "monitori",
-  "nas-uredjaji",
+  "televizori",
+  "ruteri",
+  "access-point",
+  "switchevi",
+  "nadzorne-kamere",
+  "zvucnici",
   "tastature",
+  "nas-uredjaji",
+  "audio-video-ekstenderi",
   "serveri",
 ];
 
