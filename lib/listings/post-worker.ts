@@ -6,9 +6,11 @@ import {
   countPostedToday,
   findCandidateProductIds,
   getActivePostingWindowEndIso,
-  getPostingCategoryQueue,
+  getNextCategoryInQueue,
+  getPostingCategoryQueueFromCursor,
   loadListedProductIds,
   randomDelayMs,
+  savePostingCategoryCursor,
   sleep,
   type CategoryQueueItem,
 } from "@/lib/listings/post-queue";
@@ -82,9 +84,10 @@ async function resolveCategories(
   admin: Admin,
   profileId: string,
   categoryId?: string,
-): Promise<CategoryQueueItem[]> {
+): Promise<{ categories: CategoryQueueItem[]; trackCursor: boolean }> {
   if (!categoryId) {
-    return getPostingCategoryQueue(admin, profileId);
+    const { queue } = await getPostingCategoryQueueFromCursor(admin, profileId);
+    return { categories: queue, trackCursor: true };
   }
 
   const { data: cat, error } = await admin
@@ -115,14 +118,17 @@ async function resolveCategories(
     );
   }
 
-  return [
-    {
-      categoryId: cat.id,
-      olxCategoryId: Number(cat.olx_category_id),
-      slug: cat.internal_slug,
-      priority: priority?.priority ?? 0,
-    },
-  ];
+  return {
+    categories: [
+      {
+        categoryId: cat.id,
+        olxCategoryId: Number(cat.olx_category_id),
+        slug: cat.internal_slug,
+        priority: priority?.priority ?? 0,
+      },
+    ],
+    trackCursor: false,
+  };
 }
 
 export async function runPostListingsWorker(
@@ -206,7 +212,7 @@ export async function runPostListingsWorker(
   }
 
   const listedIds = await loadListedProductIds(admin, profile.id);
-  const categories = await resolveCategories(
+  const { categories, trackCursor } = await resolveCategories(
     admin,
     profile.id,
     options.categoryId,
@@ -218,12 +224,16 @@ export async function runPostListingsWorker(
     return result;
   }
 
+  const startCursorId = categories[0]?.categoryId ?? null;
+  let nextCursorCategoryId: string | null = startCursorId;
+
   await logItem(admin, jobRunId, "info", "Postavljanje pokrenuto", {
     budget,
     postedToday,
     dailyLimit,
     skipImport: options.skipImport ?? false,
     categoryId: options.categoryId ?? null,
+    postingCategoryCursor: trackCursor ? startCursorId : null,
     categories: categories.map((c) => c.slug),
   });
 
@@ -255,7 +265,17 @@ export async function runPostListingsWorker(
         "info",
         `Kategorija ${category.slug}: nema novih kandidata.`,
       );
+      if (trackCursor) {
+        nextCursorCategoryId = getNextCategoryInQueue(
+          categories,
+          category.categoryId,
+        );
+      }
       continue;
+    }
+
+    if (trackCursor) {
+      nextCursorCategoryId = category.categoryId;
     }
 
     console.log(
@@ -412,7 +432,41 @@ export async function runPostListingsWorker(
       }
     }
 
-    if (result.cancelled || hitOlxDailyLimit) break;
+    if (result.cancelled || hitOlxDailyLimit) {
+      if (trackCursor) {
+        nextCursorCategoryId = category.categoryId;
+      }
+      break;
+    }
+
+    if (trackCursor) {
+      const hasMore =
+        (
+          await findCandidateProductIds(
+            admin,
+            profile.id,
+            category.categoryId,
+            listedIds,
+            1,
+          )
+        ).length > 0;
+      if (!hasMore) {
+        nextCursorCategoryId = getNextCategoryInQueue(
+          categories,
+          category.categoryId,
+        );
+      }
+    }
+  }
+
+  if (trackCursor && !dryRun && (result.posted > 0 || nextCursorCategoryId !== startCursorId)) {
+    await savePostingCategoryCursor(admin, profile.id, nextCursorCategoryId);
+    console.log(
+      `Cursor kategorije ažuriran → ${nextCursorCategoryId ?? "null"}`,
+    );
+    await logItem(admin, jobRunId, "info", "Cursor kategorije ažuriran", {
+      posting_category_cursor_id: nextCursorCategoryId,
+    });
   }
 
   result.remainingDaily = Math.max(

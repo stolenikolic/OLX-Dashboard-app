@@ -95,12 +95,53 @@ function choosePsu(our: string, ad: string): boolean {
   return matchesDefault(our, ad);
 }
 
+/** Arctis Nova generacija: 1, 5, 7, 7P … */
+function arctisNovaGeneration(title: string): string | null {
+  const m = title.toUpperCase().match(/\bNOVA\s+(\d+[A-Z]{0,2})\b/);
+  return m ? m[1] : null;
+}
+
+function hasArctisNovaPro(title: string): boolean {
+  return /\bNOVA\s+PRO\b/.test(title.toUpperCase());
+}
+
+function symmetricFlag(a: string, b: string, flag: string): boolean {
+  const inA = a.includes(flag);
+  const inB = b.includes(flag);
+  return inA === inB;
+}
+
 function chooseHeadset(our: string, ad: string): boolean {
   const a = our.toUpperCase();
   const b = ad.toUpperCase();
+
   for (const f of ["I", "II", "III"]) {
     if (a.includes(f) && !b.includes(f)) return false;
   }
+
+  // Logitech G-serija — tačan model (G733 ≠ G435).
+  const ourG = a.match(/\bG\d{3,4}\b/);
+  const adG = b.match(/\bG\d{3,4}\b/);
+  if (ourG || adG) {
+    if (!ourG || !adG || ourG[0] !== adG[0]) return false;
+  }
+
+  // Arctis Nova — ista generacija (Nova 5 ≠ Nova 7 / 7P / 1).
+  const ourNova = arctisNovaGeneration(a);
+  const adNova = arctisNovaGeneration(b);
+  if (ourNova || adNova) {
+    if (!ourNova || !adNova || ourNova !== adNova) return false;
+  }
+
+  // Nova vs Nova Pro — različit SKU.
+  if (hasArctisNovaPro(a) !== hasArctisNovaPro(b)) return false;
+
+  // Wireless / platform varijante moraju se poklapati.
+  if (!symmetricFlag(a, b, "WIRELESS")) return false;
+  for (const f of ["7P", "7X", "XBOX", "PLAYSTATION", "PS5", "PS4"]) {
+    if (!symmetricFlag(a, b, f)) return false;
+  }
+
   return matchesDefault(our, ad);
 }
 

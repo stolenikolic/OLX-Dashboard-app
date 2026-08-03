@@ -71,6 +71,85 @@ export async function getPostingCategoryQueue(
   }));
 }
 
+/** Rotira queue da počinje od cursor kategorije (wrap). */
+export function rotateCategoryQueue(
+  queue: CategoryQueueItem[],
+  cursorCategoryId: string | null,
+): CategoryQueueItem[] {
+  if (queue.length === 0 || !cursorCategoryId) return queue;
+  const idx = queue.findIndex((c) => c.categoryId === cursorCategoryId);
+  if (idx <= 0) return queue;
+  return [...queue.slice(idx), ...queue.slice(0, idx)];
+}
+
+/** Sljedeća kategorija u queue-u (wrap na početak). */
+export function getNextCategoryInQueue(
+  queue: CategoryQueueItem[],
+  currentCategoryId: string,
+): string | null {
+  if (queue.length === 0) return null;
+  const idx = queue.findIndex((c) => c.categoryId === currentCategoryId);
+  if (idx === -1) return queue[0]!.categoryId;
+  return queue[(idx + 1) % queue.length]!.categoryId;
+}
+
+export async function loadPostingCategoryCursor(
+  admin: Admin,
+  profileId: string,
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("posting_category_cursor_id")
+    .eq("id", profileId)
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Učitavanje posting cursora nije uspjelo: ${error.message}`,
+    );
+  }
+
+  return data?.posting_category_cursor_id ?? null;
+}
+
+export async function savePostingCategoryCursor(
+  admin: Admin,
+  profileId: string,
+  categoryId: string | null,
+): Promise<void> {
+  const { error } = await admin
+    .from("profiles")
+    .update({
+      posting_category_cursor_id: categoryId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", profileId);
+
+  if (error) {
+    throw new Error(`Upis posting cursora nije uspio: ${error.message}`);
+  }
+}
+
+export async function getPostingCategoryQueueFromCursor(
+  admin: Admin,
+  profileId: string,
+): Promise<{ queue: CategoryQueueItem[]; cursorId: string | null }> {
+  const [baseQueue, cursorId] = await Promise.all([
+    getPostingCategoryQueue(admin, profileId),
+    loadPostingCategoryCursor(admin, profileId),
+  ]);
+
+  const validCursor =
+    cursorId && baseQueue.some((c) => c.categoryId === cursorId)
+      ? cursorId
+      : null;
+
+  return {
+    queue: rotateCategoryQueue(baseQueue, validCursor),
+    cursorId: validCursor,
+  };
+}
+
 /**
  * Soft brojač objava u tekućem 24h prozoru (od posting_window_started_at).
  * Samo za dashboard/log — NE koristi se kao hard stop (OLX forsira limit).
