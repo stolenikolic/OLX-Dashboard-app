@@ -5,7 +5,6 @@ import { postProductListing } from "@/lib/listings/post-listing";
 import {
   countPostedToday,
   findCandidateProductIds,
-  getActivePostingWindowEndIso,
   getNextCategoryInQueue,
   getPostingCategoryQueueFromCursor,
   loadListedProductIds,
@@ -14,7 +13,12 @@ import {
   sleep,
   type CategoryQueueItem,
 } from "@/lib/listings/post-queue";
-import { ensurePostingWindowStarted } from "@/lib/listings/post-schedule";
+import {
+  ensurePostingWindowStarted,
+  POST_MAX_DAILY_ATTEMPTS,
+  recordPostAttempt,
+} from "@/lib/listings/post-schedule";
+import { getWindowEndAt, isPostingWindowOpen } from "@/lib/listings/post-schedule-time";
 import {
   handleOlxAuthFailure,
   isAuthFailure,
@@ -59,6 +63,7 @@ export type PostWorkerResult = {
   failed: number;
   remainingDaily: number;
   cancelled: boolean;
+  hitOlxDailyLimit: boolean;
   errors: string[];
 };
 
@@ -194,6 +199,7 @@ export async function runPostListingsWorker(
     failed: 0,
     remainingDaily: Math.max(0, dailyLimit - postedToday),
     cancelled: false,
+    hitOlxDailyLimit: false,
     errors: [],
   };
 
@@ -389,30 +395,26 @@ export async function runPostListingsWorker(
         }
         if (isDailyPostLimitError(err)) {
           hitOlxDailyLimit = true;
-          const details = olxErrorDetails(err);
-          const windowEndIso = await getActivePostingWindowEndIso(
+          result.hitOlxDailyLimit = true;
+          const windowStart = await ensurePostingWindowStarted(
             admin,
             profile.id,
           );
-          const windowHint = windowEndIso
-            ? ` Prozor do ${windowEndIso}.`
-            : "";
-          console.warn(
-            `OLX dnevni limit — prekidam postanje. Objavljeno u runu: ${result.posted}. Soft brojač: ${postedToday + result.posted}/${dailyLimit}.${windowHint}\n${formatOlxError(err)}`,
+          const windowEndIso = getWindowEndAt(windowStart)?.toISOString() ?? null;
+          console.log(
+            `OLX dnevni limit — postavljanje za danas završeno. Objavljeno u runu: ${result.posted}.${windowEndIso ? ` Prozor do ${windowEndIso}.` : ""}`,
           );
           await logItem(
             admin,
             jobRunId,
-            "warn",
-            `OLX dnevni limit dostignut — stop.${windowHint}`,
+            "info",
+            `Dnevni limit OLX-a dostignut — postavljanje za danas završeno.${windowEndIso ? ` Prozor do ${windowEndIso}.` : ""}`,
             {
               productId,
-              error: details.message,
-              olxStatus: details.status,
-              olxBody: details.body,
               postedInRun: result.posted,
               softPostedToday: postedToday + result.posted,
               dailyLimit,
+              posting_window_started_at: windowStart,
             },
           );
           break;
@@ -467,6 +469,30 @@ export async function runPostListingsWorker(
     await logItem(admin, jobRunId, "info", "Cursor kategorije ažuriran", {
       posting_category_cursor_id: nextCursorCategoryId,
     });
+  }
+
+  if (
+    !options.categoryId &&
+    !dryRun &&
+    !hitOlxDailyLimit &&
+    result.posted === 0 &&
+    !result.cancelled
+  ) {
+    const { data: windowRow } = await admin
+      .from("profiles")
+      .select("posting_window_started_at")
+      .eq("id", profile.id)
+      .single();
+    if (!isPostingWindowOpen(windowRow?.posting_window_started_at ?? null)) {
+      const attempt = await recordPostAttempt(admin, profile.id);
+      await logItem(
+        admin,
+        jobRunId,
+        "info",
+        `Pokušaj postavljanja bez objave (${attempt}/${POST_MAX_DAILY_ATTEMPTS}) — sljedeći pokušaj kad cron bude due.`,
+        { posting_attempt_count: attempt },
+      );
+    }
   }
 
   result.remainingDaily = Math.max(
@@ -526,15 +552,21 @@ export async function runPostListingsJob(
       : "";
     const summary = stats.cancelled
       ? `Zaustavljeno.${categoryPart} objavljeno=${stats.posted}; preskočeno=${stats.skipped}; greške=${stats.failed}.`
-      : `Import matched=${stats.importResult?.matched ?? 0};${categoryPart} objavljeno=${stats.posted}; preskočeno=${stats.skipped}; greške=${stats.failed}.`;
+      : stats.hitOlxDailyLimit
+        ? `OLX dnevni limit — postavljanje za danas završeno.${categoryPart} objavljeno=${stats.posted}; preskočeno=${stats.skipped}.`
+        : `Import matched=${stats.importResult?.matched ?? 0};${categoryPart} objavljeno=${stats.posted}; preskočeno=${stats.skipped}; greške=${stats.failed}.`;
 
     const status = stats.cancelled
       ? "cancelled"
-      : stats.failed > 0 && stats.posted === 0
-        ? "failed"
-        : stats.failed > 0
+      : stats.hitOlxDailyLimit
+        ? stats.posted > 0
           ? "partial"
-          : "success";
+          : "success"
+        : stats.failed > 0 && stats.posted === 0
+          ? "failed"
+          : stats.failed > 0
+            ? "partial"
+            : "success";
 
     await finishJobRun(admin, jobRunId, {
       status,
@@ -546,7 +578,7 @@ export async function runPostListingsJob(
 
     await appendJobLog(admin, jobRunId, {
       level:
-        stats.cancelled || stats.failed > 0
+        stats.cancelled || (stats.failed > 0 && !stats.hitOlxDailyLimit)
           ? "warn"
           : "info",
       message: stats.cancelled

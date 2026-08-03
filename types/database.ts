@@ -776,6 +776,8 @@ export type Database = {
           olx_user_id: number | null
           olx_username: string | null
           post_schedule_time: string | null
+          posting_attempt_count: number
+          posting_attempt_date: string | null
           posting_category_cursor_id: string | null
           posting_window_started_at: string | null
           price_mode: Database["public"]["Enums"]["price_mode"]
@@ -810,6 +812,8 @@ export type Database = {
           olx_user_id?: number | null
           olx_username?: string | null
           post_schedule_time?: string | null
+          posting_attempt_count?: number
+          posting_attempt_date?: string | null
           posting_category_cursor_id?: string | null
           posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]
@@ -844,6 +848,8 @@ export type Database = {
           olx_user_id?: number | null
           olx_username?: string | null
           post_schedule_time?: string | null
+          posting_attempt_count?: number
+          posting_attempt_date?: string | null
           posting_category_cursor_id?: string | null
           posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]

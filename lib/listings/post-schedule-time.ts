@@ -153,6 +153,16 @@ export function isPostingWindowOpen(
   return end != null && now < end;
 }
 
+/** YYYY-MM-DD u Europe/Sarajevo. */
+export function sarajevoTodayDateString(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: POST_SCHEDULE_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 export function slotToTime(slotIndex: number): string {
   const minutes =
     SLOT_START_MINUTES + (slotIndex % SLOT_COUNT) * SLOT_STEP_MINUTES;

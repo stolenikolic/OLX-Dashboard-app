@@ -52,6 +52,16 @@ function olxErrorText(error: unknown): string {
  * Tačan odgovor: 400 bad_request — "Prekoračili ste limit objave oglasa od 350 po danu!"
  */
 export function isDailyPostLimitError(error: unknown): boolean {
+  if (error instanceof OlxApiError && error.body?.trim()) {
+    const raw = error.body.toLowerCase();
+    if (
+      raw.includes("350 po danu") ||
+      raw.includes("limit objave oglasa od 350")
+    ) {
+      return true;
+    }
+  }
+
   if (error instanceof OlxApiError && error.status === 400) {
     const text = olxErrorText(error);
     if (DAILY_LIMIT_MESSAGE.test(text)) return true;
