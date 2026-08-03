@@ -5,6 +5,10 @@ import {
   getNextEligibleAt,
   isPostingWindowOpen,
 } from "@/lib/listings/post-schedule-time";
+import {
+  parseJobsEnabled,
+  type JobsEnabledMap,
+} from "@/lib/workers/jobs-enabled-config";
 import type { Database } from "@/types/database";
 
 type Client = SupabaseClient<Database>;
@@ -22,6 +26,7 @@ export type ProfileSummary = {
   nextEligibleAt: string | null;
   refreshFreeLimit: number | null;
   refreshFreeCount: number | null;
+  jobsEnabled: JobsEnabledMap;
 };
 
 export type ListingRow = {
@@ -80,7 +85,7 @@ export async function fetchProfileSummaries(
   const { data: profiles, error } = await supabase
     .from("profiles")
     .select(
-      "id, name, status, olx_username, daily_post_limit, refresh_free_limit, refresh_free_count, post_schedule_time, posting_window_started_at",
+      "id, name, status, olx_username, daily_post_limit, refresh_free_limit, refresh_free_count, post_schedule_time, posting_window_started_at, jobs_enabled",
     )
     .order("name");
 
@@ -126,6 +131,7 @@ export async function fetchProfileSummaries(
       nextEligibleAt: nextEligible?.toISOString() ?? null,
       refreshFreeLimit: profile.refresh_free_limit,
       refreshFreeCount: profile.refresh_free_count,
+      jobsEnabled: parseJobsEnabled(profile.jobs_enabled),
     });
   }
 

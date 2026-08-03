@@ -1,4 +1,5 @@
 import { createJobAdminClient } from "@/lib/supabase/job-admin";
+import { NEW_PROFILE_JOBS_ENABLED } from "@/lib/workers/jobs-enabled-config";
 
 async function main() {
   const admin = createJobAdminClient();
@@ -26,6 +27,7 @@ async function main() {
         name: p.name,
         olx_username: p.olx_username,
         status: "paused",
+        jobs_enabled: NEW_PROFILE_JOBS_ENABLED,
       })
       .select("id")
       .single();

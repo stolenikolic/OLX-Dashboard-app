@@ -11,9 +11,25 @@ import {
   getNextEligibleAt,
   getWindowEndAt,
 } from "@/lib/listings/post-schedule-time";
+import {
+  JOB_TOGGLE_LABELS,
+  parseJobsEnabled,
+  PROFILE_TOGGLE_JOBS,
+  type JobsEnabledMap,
+  type ProfileToggleJob,
+} from "@/lib/workers/jobs-enabled-config";
 import type { Database } from "@/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
+
+const JOB_DESCRIPTIONS: Record<ProfileToggleJob, string> = {
+  post_listings: "Automatsko postavljanje novih oglasa",
+  refresh_prices: "Periodično obnavljanje cijena",
+  sync_stock: "Sakrij/vrati oglase prema zalihama",
+  refresh_listings: "Bump oglasa (score sistem)",
+  sync_conversations: "Sinhronizacija OLX upita",
+  sync_messages: "Sinhronizacija i slanje poruka",
+};
 
 function formatSarajevo(iso: string | null): string {
   if (!iso) return "—";
@@ -29,6 +45,9 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
   const [message, setMessage] = useState<string | null>(null);
   const [scheduleTime, setScheduleTime] = useState(
     formatScheduleTime(profile.post_schedule_time) ?? "",
+  );
+  const [jobsEnabled, setJobsEnabled] = useState<JobsEnabledMap>(() =>
+    parseJobsEnabled(profile.jobs_enabled),
   );
 
   const nextEligible = getNextEligibleAt(
@@ -61,6 +80,7 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
           olx_client_id: String(fd.get("olx_client_id") ?? ""),
           olx_client_token_enc: String(fd.get("olx_client_token_enc") ?? ""),
           proxy_url: String(fd.get("proxy_url") ?? ""),
+          jobs_enabled: jobsEnabled,
         });
         setMessage("Sačuvano.");
       } catch (err) {
@@ -208,6 +228,54 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
             className="mt-1 w-full rounded-lg border px-3 py-2"
           />
         </label>
+      </section>
+
+      <section className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">
+        <div>
+          <h2 className="font-semibold">Automatizacija po poslu</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Isključeni posao se ne pokreće za ovaj profil (cron, ručno iz
+            panela i povezane akcije).
+          </p>
+        </div>
+        <ul className="divide-y divide-zinc-100">
+          {PROFILE_TOGGLE_JOBS.map((job) => {
+            const on = jobsEnabled[job];
+            return (
+              <li
+                key={job}
+                className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-900">
+                    {JOB_TOGGLE_LABELS[job]}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {JOB_DESCRIPTIONS[job]}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  disabled={pending}
+                  onClick={() =>
+                    setJobsEnabled((prev) => ({ ...prev, [job]: !prev[job] }))
+                  }
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                    on ? "bg-teal-600" : "bg-zinc-300"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      on ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       </section>
 
       <section className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5">

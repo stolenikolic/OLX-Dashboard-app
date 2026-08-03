@@ -43,6 +43,13 @@ import {
 } from "@/lib/pricing/context";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  assertJobEnabledForProfile,
+  mergeJobsEnabled,
+  NEW_PROFILE_JOBS_ENABLED,
+  WORKFLOW_TO_JOB,
+  type JobsEnabledMap,
+} from "@/lib/workers/jobs-enabled";
 import { requestJobCancel } from "@/lib/workers/job-log";
 import type { Database } from "@/types/database";
 
@@ -66,7 +73,9 @@ async function getListingForAction(listingId: string) {
 export async function hideListingAction(listingId: string) {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const client = await createClientForProfileId(listing.profile_id);
+  const client = await createClientForProfileId(listing.profile_id, {
+    job: "sync_stock",
+  });
 
   await client.hideListing(listing.olx_listing_id!);
 
@@ -87,7 +96,9 @@ export async function hideListingAction(listingId: string) {
 export async function unhideListingAction(listingId: string) {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const client = await createClientForProfileId(listing.profile_id);
+  const client = await createClientForProfileId(listing.profile_id, {
+    job: "sync_stock",
+  });
 
   await client.unhideListing(listing.olx_listing_id!);
 
@@ -113,7 +124,9 @@ export async function refreshListingPriceAction(listingId: string) {
   }
 
   const admin = createAdminClient();
-  const client = await createClientForProfileId(listing.profile_id);
+  const client = await createClientForProfileId(listing.profile_id, {
+    job: "refresh_prices",
+  });
 
   let newPrice: number;
   let audit: {
@@ -205,7 +218,9 @@ export async function refreshListingBumpAction(
   await requireUser();
   const listing = await getListingForAction(listingId);
   const admin = createAdminClient();
-  const client = await createClientForProfileId(listing.profile_id);
+  const client = await createClientForProfileId(listing.profile_id, {
+    job: "refresh_listings",
+  });
 
   const result = await bumpListingManual(
     admin,
@@ -262,6 +277,11 @@ export async function dispatchWorkflowAction(
   profileId?: string,
 ) {
   await requireAdmin();
+  const job = WORKFLOW_TO_JOB[workflow];
+  if (profileId && job) {
+    const admin = createAdminClient();
+    await assertJobEnabledForProfile(admin, profileId, job);
+  }
   const inputs: Record<string, string> = {};
   if (profileId) inputs.profile_id = profileId;
   const result = await dispatchGitHubWorkflow(workflow, inputs);
@@ -325,7 +345,9 @@ export async function previewCategoryPostAction(
   await requireAdmin();
   const admin = createAdminClient();
   const cat = await assertCategoryPostable(admin, profileId, categoryId);
-  const profile = await loadProfileForWorker(admin, profileId);
+  const profile = await loadProfileForWorker(admin, profileId, {
+    job: "post_listings",
+  });
 
   const [stats, postedToday] = await Promise.all([
     countCandidateProducts(admin, profileId, categoryId),
@@ -356,6 +378,7 @@ export async function dispatchCategoryPostAction(
   await requireAdmin();
   const admin = createAdminClient();
   await assertCategoryPostable(admin, profileId, categoryId);
+  await assertJobEnabledForProfile(admin, profileId, "post_listings");
 
   const supabase = await createClient();
   const active = await fetchActivePostJob(supabase, profileId);
@@ -632,6 +655,7 @@ export async function updateProfileSettingsAction(
     olx_client_id: string;
     olx_client_token_enc: string;
     proxy_url: string;
+    jobs_enabled?: Partial<JobsEnabledMap>;
   },
 ) {
   await requireAdmin();
@@ -643,6 +667,16 @@ export async function updateProfileSettingsAction(
     const { hour, minute } = parseScheduleTime(rawTime);
     postScheduleTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
   }
+
+  const { data: existing } = await admin
+    .from("profiles")
+    .select("jobs_enabled")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  const jobsEnabled = form.jobs_enabled
+    ? mergeJobsEnabled(existing?.jobs_enabled, form.jobs_enabled)
+    : undefined;
 
   const update: Database["public"]["Tables"]["profiles"]["Update"] = {
     name: form.name.trim(),
@@ -660,6 +694,10 @@ export async function updateProfileSettingsAction(
     proxy_url: form.proxy_url || null,
     updated_at: new Date().toISOString(),
   };
+
+  if (jobsEnabled) {
+    update.jobs_enabled = jobsEnabled;
+  }
 
   if (form.olx_password_enc.trim()) {
     update.olx_password_enc = form.olx_password_enc;
@@ -781,6 +819,7 @@ export async function createTestProfileAction(form: {
       name: form.name.trim(),
       olx_username: form.olx_username.trim() || null,
       status: "paused",
+      jobs_enabled: NEW_PROFILE_JOBS_ENABLED,
     })
     .select("id")
     .single();

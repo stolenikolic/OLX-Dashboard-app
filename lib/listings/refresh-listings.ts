@@ -17,6 +17,10 @@ import type { OlxClient } from "@/lib/olx/client";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
+  isJobDisabledError,
+  recordJobSkipped,
+} from "@/lib/workers/jobs-enabled";
+import {
   createClientForProfile,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
@@ -332,7 +336,9 @@ export async function runRefreshListingsWorker(
   admin: Admin,
   options: RefreshListingsOptions,
 ): Promise<RefreshListingsResult> {
-  const profile = await loadProfileForWorker(admin, options.profileId);
+  const profile = await loadProfileForWorker(admin, options.profileId, {
+    job: "refresh_listings",
+  });
   const dryRun = options.dryRun ?? false;
   const maxRefreshes = resolveMaxRefreshes(options.maxRefreshes);
 
@@ -537,7 +543,35 @@ export async function runRefreshListingsJob(
   profileId: string,
   options?: { dryRun?: boolean; maxRefreshes?: number },
 ): Promise<RefreshListingsResult> {
-  const profile = await loadProfileForWorker(admin, profileId);
+  let profile;
+  try {
+    profile = await loadProfileForWorker(admin, profileId, {
+      job: "refresh_listings",
+    });
+  } catch (err) {
+    if (isJobDisabledError(err)) {
+      await recordJobSkipped(admin, {
+        job: "refresh_listings",
+        profileId,
+        profileName: err.profileName,
+      });
+      return {
+        freeLimit: 0,
+        freeCount: 0,
+        remaining: 0,
+        dailyCap: 0,
+        catalogSize: 0,
+        candidates: 0,
+        refreshed: 0,
+        skipped: 0,
+        failed: 0,
+        topScores: [],
+        errors: [],
+      };
+    }
+    throw err;
+  }
+
   const jobRunId = await startJobRun(admin, {
     job: "refresh_listings",
     profileId,

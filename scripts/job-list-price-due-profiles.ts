@@ -1,6 +1,11 @@
 import { appendFileSync } from "fs";
 
 import { listPriceDueProfiles } from "@/lib/listings/list-price-due-profiles";
+import {
+  isJobEnabledForProfile,
+  JOB_TOGGLE_LABELS,
+  recordJobSkipped,
+} from "@/lib/workers/jobs-enabled";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";
 
 function writeGithubOutput(lines: string[]) {
@@ -18,15 +23,39 @@ async function main() {
   const force =
     process.env.FORCE === "true" || process.env.FORCE === "1";
 
-  const profiles = await listPriceDueProfiles(admin, {
+  // Due bez job filtera, pa filtriraj + log skip.
+  const dueAll = await listPriceDueProfiles(admin, {
     onlyProfileId: process.env.ONLY_PROFILE_ID,
     force,
+    ignoreJobToggle: true,
   });
+
+  const profiles = [];
+  for (const p of dueAll) {
+    const { data } = await admin
+      .from("profiles")
+      .select("jobs_enabled")
+      .eq("id", p.id)
+      .maybeSingle();
+
+    if (isJobEnabledForProfile(data ?? {}, "refresh_prices")) {
+      profiles.push(p);
+    } else {
+      await recordJobSkipped(admin, {
+        job: "refresh_prices",
+        profileId: p.id,
+        profileName: p.name,
+      });
+      console.log(
+        `Preskočen ${p.name}: ${JOB_TOGGLE_LABELS.refresh_prices} isključen.`,
+      );
+    }
+  }
 
   const onlyId = process.env.ONLY_PROFILE_ID?.trim();
   if (onlyId && profiles.length === 0) {
     throw new Error(
-      `Nema profila za refresh s id=${onlyId} (provjeri status / force flag).`,
+      `Nema profila za refresh s id=${onlyId} (provjeri status / force flag / da je "${JOB_TOGGLE_LABELS.refresh_prices}" uključen).`,
     );
   }
 

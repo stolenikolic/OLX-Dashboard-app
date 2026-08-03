@@ -4,6 +4,10 @@ import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
+  isJobDisabledError,
+  recordJobSkipped,
+} from "@/lib/workers/jobs-enabled";
+import {
   createClientForProfile,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
@@ -124,7 +128,9 @@ export async function runStockSyncWorker(
   admin: Admin,
   options: StockSyncOptions,
 ): Promise<StockSyncResult> {
-  const profile = await loadProfileForWorker(admin, options.profileId);
+  const profile = await loadProfileForWorker(admin, options.profileId, {
+    job: "sync_stock",
+  });
   const dryRun = options.dryRun ?? false;
   const maxActions = resolveMaxActions(options.maxActions);
   const delayMinMs = options.delayMinMs ?? 500;
@@ -278,7 +284,30 @@ export async function runStockSyncJob(
   profileId: string,
   options?: { dryRun?: boolean },
 ): Promise<StockSyncResult> {
-  const profile = await loadProfileForWorker(admin, profileId);
+  let profile;
+  try {
+    profile = await loadProfileForWorker(admin, profileId, {
+      job: "sync_stock",
+    });
+  } catch (err) {
+    if (isJobDisabledError(err)) {
+      await recordJobSkipped(admin, {
+        job: "sync_stock",
+        profileId,
+        profileName: err.profileName,
+      });
+      return {
+        hideCandidates: 0,
+        unhideCandidates: 0,
+        hidden: 0,
+        unhidden: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      };
+    }
+    throw err;
+  }
 
   const jobRunId = await startJobRun(admin, {
     job: "sync_stock",

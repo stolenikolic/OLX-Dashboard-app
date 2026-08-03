@@ -7,6 +7,9 @@ import {
   loadProfileForWorker,
   type ProfileForWorker,
 } from "@/lib/workers/profile";
+import type { Database } from "@/types/database";
+
+type JobType = Database["public"]["Enums"]["job_type"];
 
 export {
   clearProfileTokenCache,
@@ -24,8 +27,11 @@ export async function createClientForProfileRecord(
 }
 
 /** Dashboard helper — po ID-u profila. */
-export async function createClientForProfileId(profileId: string) {
+export async function createClientForProfileId(
+  profileId: string,
+  options?: { job?: JobType },
+) {
   const admin = createAdminClient();
-  const profile = await loadProfileForWorker(admin, profileId);
+  const profile = await loadProfileForWorker(admin, profileId, options);
   return createClientForProfileWorker(admin, profile);
 }

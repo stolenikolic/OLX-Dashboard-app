@@ -4,9 +4,14 @@ import { ensureProfileIdentity } from "@/lib/profile/identity";
 import { OlxClient, createLoggedInClient } from "@/lib/olx/client";
 import { notifyAdmin } from "@/lib/notify/email";
 import { maybeResumeProfile } from "@/lib/olx/suspension";
-import type { Database } from "@/types/database";
+import {
+  isJobEnabledForProfile,
+  JobDisabledError,
+} from "@/lib/workers/jobs-enabled-config";
+import type { Database, Json } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
+type JobType = Database["public"]["Enums"]["job_type"];
 
 /** Soft hint u DB; stvarni reuse se oslanja na /me, ne na ovaj TTL. */
 const TOKEN_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -30,6 +35,7 @@ export type ProfileForWorker = {
   daily_post_limit: number;
   description_template: string | null;
   suspended_until: string | null;
+  jobs_enabled: Json;
 };
 
 const PROFILE_SELECT = `
@@ -50,12 +56,14 @@ const PROFILE_SELECT = `
   proxy_url,
   daily_post_limit,
   description_template,
-  suspended_until
+  suspended_until,
+  jobs_enabled
 `;
 
 export async function loadProfileForWorker(
   admin: Admin,
   profileId: string,
+  options?: { job?: JobType },
 ): Promise<ProfileForWorker> {
   const { data, error } = await admin
     .from("profiles")
@@ -84,6 +92,10 @@ export async function loadProfileForWorker(
 
   if (data.status !== "active") {
     throw new Error(`Profil "${data.name}" nije aktivan (${data.status}).`);
+  }
+
+  if (options?.job && !isJobEnabledForProfile(data, options.job)) {
+    throw new JobDisabledError(data.name, options.job);
   }
 
   return data;
@@ -258,12 +270,13 @@ export async function createClientForProfile(
   return client;
 }
 
-export async function listActiveProfiles(admin: Admin): Promise<
-  Array<{ id: string; name: string }>
-> {
+export async function listActiveProfiles(
+  admin: Admin,
+  options?: { job?: JobType },
+): Promise<Array<{ id: string; name: string }>> {
   const { data, error } = await admin
     .from("profiles")
-    .select("id, name, status, suspended_until")
+    .select("id, name, status, suspended_until, jobs_enabled")
     .in("status", ["active", "suspended"])
     .order("name");
 
@@ -274,15 +287,22 @@ export async function listActiveProfiles(admin: Admin): Promise<
   const profiles: Array<{ id: string; name: string }> = [];
 
   for (const row of data ?? []) {
+    let eligible = false;
+
     if (row.status === "active") {
-      profiles.push({ id: row.id, name: row.name });
+      eligible = true;
+    } else {
+      const resumed = await maybeResumeProfile(admin, row);
+      if (resumed) eligible = true;
+    }
+
+    if (!eligible) continue;
+
+    if (options?.job && !isJobEnabledForProfile(row, options.job)) {
       continue;
     }
 
-    const resumed = await maybeResumeProfile(admin, row);
-    if (resumed) {
-      profiles.push({ id: row.id, name: row.name });
-    }
+    profiles.push({ id: row.id, name: row.name });
   }
 
   return profiles;

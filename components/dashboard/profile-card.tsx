@@ -1,6 +1,10 @@
 import Link from "next/link";
 
 import type { ProfileSummary } from "@/lib/dashboard/queries";
+import {
+  JOB_TOGGLE_SHORT_LABELS,
+  PROFILE_TOGGLE_JOBS,
+} from "@/lib/workers/jobs-enabled-config";
 
 const statusLabels: Record<ProfileSummary["status"], string> = {
   active: "Aktivan",
@@ -49,6 +53,25 @@ export function ProfileCard({
           >
             {statusLabels[profile.status]}
           </span>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1">
+          {PROFILE_TOGGLE_JOBS.map((job) => {
+            const on = profile.jobsEnabled[job];
+            return (
+              <span
+                key={job}
+                title={`${JOB_TOGGLE_SHORT_LABELS[job]}: ${on ? "uključeno" : "isključeno"}`}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  on
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-zinc-100 text-zinc-400"
+                }`}
+              >
+                {JOB_TOGGLE_SHORT_LABELS[job]}
+              </span>
+            );
+          })}
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">

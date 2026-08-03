@@ -764,6 +764,7 @@ export type Database = {
           description_template: string | null
           device_name: string | null
           id: string
+          jobs_enabled: Json
           kurs: number
           kurs_uvoz: number
           name: string
@@ -800,6 +801,7 @@ export type Database = {
           description_template?: string | null
           device_name?: string | null
           id?: string
+          jobs_enabled?: Json
           kurs?: number
           kurs_uvoz?: number
           name: string
@@ -836,6 +838,7 @@ export type Database = {
           description_template?: string | null
           device_name?: string | null
           id?: string
+          jobs_enabled?: Json
           kurs?: number
           kurs_uvoz?: number
           name?: string

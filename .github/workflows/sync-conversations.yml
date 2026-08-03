@@ -40,6 +40,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ONLY_PROFILE_ID: ${{ github.event.inputs.profile_id }}
+          JOB_TYPE: sync_conversations
         run: npm run job:list-active-profiles
 
   sync:

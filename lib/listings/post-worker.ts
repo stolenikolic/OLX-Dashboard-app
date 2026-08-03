@@ -26,6 +26,10 @@ import {
 } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
+  isJobDisabledError,
+  recordJobSkipped,
+} from "@/lib/workers/jobs-enabled";
+import {
   createClientForProfile,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
@@ -140,7 +144,9 @@ export async function runPostListingsWorker(
   admin: Admin,
   options: PostWorkerOptions,
 ): Promise<PostWorkerResult> {
-  const profile = await loadProfileForWorker(admin, options.profileId);
+  const profile = await loadProfileForWorker(admin, options.profileId, {
+    job: "post_listings",
+  });
   const username = profile.olx_username ?? profile.olx_login_email;
   if (!username) {
     throw new Error(`Profil "${profile.name}" nema olx_username.`);
@@ -516,9 +522,31 @@ export async function runPostListingsJob(
   profileId: string,
   options?: RunPostListingsJobOptions,
 ): Promise<PostWorkerResult> {
-  const profile = await loadProfileForWorker(admin, profileId).catch((err) => {
+  let profile;
+  try {
+    profile = await loadProfileForWorker(admin, profileId, {
+      job: "post_listings",
+    });
+  } catch (err) {
+    if (isJobDisabledError(err)) {
+      await recordJobSkipped(admin, {
+        job: "post_listings",
+        profileId,
+        profileName: err.profileName,
+      });
+      return {
+        importResult: null,
+        posted: 0,
+        skipped: 0,
+        failed: 0,
+        remainingDaily: 0,
+        cancelled: false,
+        hitOlxDailyLimit: false,
+        errors: [],
+      };
+    }
     throw err;
-  });
+  }
 
   const jobRunId = await startJobRun(admin, {
     job: "post_listings",

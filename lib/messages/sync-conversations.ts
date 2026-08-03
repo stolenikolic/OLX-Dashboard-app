@@ -5,6 +5,10 @@ import type { OlxConversation } from "@/lib/olx/types";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
 import {
+  isJobDisabledError,
+  recordJobSkipped,
+} from "@/lib/workers/jobs-enabled";
+import {
   createClientForProfile,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
@@ -98,7 +102,9 @@ export async function runSyncConversationsWorker(
   admin: Admin,
   options: SyncConversationsOptions,
 ): Promise<SyncConversationsResult> {
-  const profile = await loadProfileForWorker(admin, options.profileId);
+  const profile = await loadProfileForWorker(admin, options.profileId, {
+    job: "sync_conversations",
+  });
   const dryRun = options.dryRun ?? false;
   const backfillMonths = options.backfillMonths;
   const maxPages =
@@ -221,7 +227,29 @@ export async function runSyncConversationsJob(
   profileId: string,
   options?: { dryRun?: boolean; backfillMonths?: number },
 ): Promise<SyncConversationsResult> {
-  const profile = await loadProfileForWorker(admin, profileId);
+  let profile;
+  try {
+    profile = await loadProfileForWorker(admin, profileId, {
+      job: "sync_conversations",
+    });
+  } catch (err) {
+    if (isJobDisabledError(err)) {
+      await recordJobSkipped(admin, {
+        job: "sync_conversations",
+        profileId,
+        profileName: err.profileName,
+      });
+      return {
+        pages: 0,
+        scanned: 0,
+        upserted: 0,
+        systemSkipped: 0,
+        stoppedReason: "job_disabled",
+      };
+    }
+    throw err;
+  }
+
   const jobRunId = await startJobRun(admin, {
     job: "sync_conversations",
     profileId,

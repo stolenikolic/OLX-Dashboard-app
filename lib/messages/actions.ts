@@ -15,6 +15,11 @@ import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
+  assertJobEnabledForProfile,
+  isJobEnabledForProfile,
+  JobDisabledError,
+} from "@/lib/workers/jobs-enabled";
+import {
   ensureOlxUserId,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
@@ -120,47 +125,57 @@ export async function pollInboxFromOlxAction(
     );
   }
 
+  const convEnabled = isJobEnabledForProfile(profile, "sync_conversations");
+  const msgEnabled = isJobEnabledForProfile(profile, "sync_messages");
+  if (!convEnabled && !msgEnabled) {
+    throw new JobDisabledError(profile.name, "sync_messages");
+  }
+
   try {
-    // createClientForProfile unutar workera → ProxyAgent(proxy_url)
-    const convStats = await runSyncConversationsWorker(admin, {
-      profileId,
-      maxPages: POLL_CONVERSATION_PAGES,
-    });
+    let conversationsUpserted = 0;
+    let messagesUpserted = 0;
 
-    const msgStats = await runSyncMessagesWorker(admin, {
-      profileId,
-      onlyUnread: true,
-      maxPagesPerConversation: 1,
-    });
+    if (convEnabled) {
+      const convStats = await runSyncConversationsWorker(admin, {
+        profileId,
+        maxPages: POLL_CONVERSATION_PAGES,
+      });
+      conversationsUpserted = convStats.upserted;
+    }
 
-    let openUpserted = 0;
-    const openId = options?.conversationId;
-    if (openId) {
-      const { data: openConv } = await admin
-        .from("conversations")
-        .select("olx_conversation_id")
-        .eq("id", openId)
-        .eq("profile_id", profileId)
-        .maybeSingle();
+    if (msgEnabled) {
+      const msgStats = await runSyncMessagesWorker(admin, {
+        profileId,
+        onlyUnread: true,
+        maxPagesPerConversation: 1,
+      });
+      messagesUpserted = msgStats.upserted;
 
-      if (openConv?.olx_conversation_id) {
-        const openStats = await runSyncMessagesWorker(admin, {
-          profileId,
-          conversationIds: [openConv.olx_conversation_id],
-          onlyUnread: false,
-          maxPagesPerConversation: 1,
-        });
-        openUpserted = openStats.upserted;
+      const openId = options?.conversationId;
+      if (openId) {
+        const { data: openConv } = await admin
+          .from("conversations")
+          .select("olx_conversation_id")
+          .eq("id", openId)
+          .eq("profile_id", profileId)
+          .maybeSingle();
+
+        if (openConv?.olx_conversation_id) {
+          const openStats = await runSyncMessagesWorker(admin, {
+            profileId,
+            conversationIds: [openConv.olx_conversation_id],
+            onlyUnread: false,
+            maxPagesPerConversation: 1,
+          });
+          messagesUpserted += openStats.upserted;
+        }
       }
     }
 
     revalidatePath("/poruke");
     revalidatePath("/");
 
-    return {
-      conversationsUpserted: convStats.upserted,
-      messagesUpserted: msgStats.upserted + openUpserted,
-    };
+    return { conversationsUpserted, messagesUpserted };
   } catch (err) {
     if (isAuthFailure(err)) {
       await handleOlxAuthFailure(admin, profile.id, profile.name, err);
@@ -190,29 +205,43 @@ export async function openConversationAction(conversationId: string) {
     !syncedAt ||
     Date.now() - syncedAt > SYNC_STALE_MS;
 
-  try {
-    const client = await createClientForProfileId(conv.profile_id);
+  const { data: profileRow } = await admin
+    .from("profiles")
+    .select("name, jobs_enabled")
+    .eq("id", conv.profile_id)
+    .maybeSingle();
 
-    if (needsSync) {
-      await runSyncMessagesWorker(admin, {
-        profileId: conv.profile_id,
-        conversationIds: [conv.olx_conversation_id],
-        onlyUnread: false,
-        maxPagesPerConversation: 1,
-      });
-    }
+  const msgEnabled = isJobEnabledForProfile(
+    profileRow ?? {},
+    "sync_messages",
+  );
 
+  // OLX sync blokiran kad je sync_messages off; lokalni unread reset ostaje.
+  if (msgEnabled) {
     try {
-      await client.markConversationSeen(conv.olx_conversation_id);
+      const client = await createClientForProfileId(conv.profile_id);
+
+      if (needsSync) {
+        await runSyncMessagesWorker(admin, {
+          profileId: conv.profile_id,
+          conversationIds: [conv.olx_conversation_id],
+          onlyUnread: false,
+          maxPagesPerConversation: 1,
+        });
+      }
+
+      try {
+        await client.markConversationSeen(conv.olx_conversation_id);
+      } catch (err) {
+        console.warn("markConversationSeen failed:", err);
+      }
     } catch (err) {
-      console.warn("markConversationSeen failed:", err);
+      if (isAuthFailure(err)) {
+        const profile = await loadProfileForWorker(admin, conv.profile_id);
+        await handleOlxAuthFailure(admin, conv.profile_id, profile.name, err);
+      }
+      throw err;
     }
-  } catch (err) {
-    if (isAuthFailure(err)) {
-      const profile = await loadProfileForWorker(admin, conv.profile_id);
-      await handleOlxAuthFailure(admin, conv.profile_id, profile.name, err);
-    }
-    throw err;
   }
 
   revalidatePath("/poruke");
@@ -245,6 +274,7 @@ export async function sendMessageAction(
   }
 
   const admin = createAdminClient();
+  await assertJobEnabledForProfile(admin, conv.profile_id, "sync_messages");
   const profile = await loadProfileForWorker(admin, conv.profile_id);
 
   try {
@@ -329,6 +359,7 @@ export async function sendImageMessageAction(
   }
 
   const admin = createAdminClient();
+  await assertJobEnabledForProfile(admin, conv.profile_id, "sync_messages");
   const profile = await loadProfileForWorker(admin, conv.profile_id);
 
   try {
@@ -443,6 +474,7 @@ export async function loadOlderMessagesAction(
   await requireUser();
   const conv = await getConversationForAction(conversationId);
   const admin = createAdminClient();
+  await assertJobEnabledForProfile(admin, conv.profile_id, "sync_messages");
 
   await runSyncMessagesWorker(admin, {
     profileId: conv.profile_id,

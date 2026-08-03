@@ -14,14 +14,21 @@ export type PriceDueProfile = {
 
 export async function listPriceDueProfiles(
   admin: Admin,
-  options?: { onlyProfileId?: string; force?: boolean },
+  options?: {
+    onlyProfileId?: string;
+    force?: boolean;
+    ignoreJobToggle?: boolean;
+  },
 ): Promise<PriceDueProfile[]> {
   const force =
     options?.force === true ||
     process.env.FORCE === "true" ||
     process.env.FORCE === "1";
 
-  let profiles = await listActiveProfiles(admin);
+  let profiles = await listActiveProfiles(
+    admin,
+    options?.ignoreJobToggle ? undefined : { job: "refresh_prices" },
+  );
   const onlyId =
     options?.onlyProfileId?.trim() ?? process.env.ONLY_PROFILE_ID?.trim();
   if (onlyId) {

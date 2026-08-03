@@ -101,8 +101,12 @@ export async function recordPostAttempt(
 export async function listDuePostProfiles(
   admin: Admin,
   now: Date = new Date(),
+  options?: { ignoreJobToggle?: boolean },
 ): Promise<Array<{ id: string; name: string }>> {
-  const active = await listActiveProfiles(admin);
+  const active = await listActiveProfiles(
+    admin,
+    options?.ignoreJobToggle ? undefined : { job: "post_listings" },
+  );
   if (active.length === 0) return [];
 
   const [runningIds, { data, error }] = await Promise.all([

@@ -38,6 +38,15 @@ function disabledReason(row: {
   return null;
 }
 
+function shuffledPriorities(count: number): number[] {
+  const nums = Array.from({ length: count }, (_, i) => i);
+  for (let i = nums.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [nums[i], nums[j]] = [nums[j], nums[i]];
+  }
+  return nums;
+}
+
 export function CategoryPriorityForm({
   profileId,
   categories,
@@ -178,6 +187,15 @@ export function CategoryPriorityForm({
     });
   }
 
+  function randomizePriorities() {
+    const priorities = shuffledPriorities(rows.length);
+    setRows((prev) =>
+      prev.map((row, i) => ({ ...row, priority: priorities[i] })),
+    );
+    setMessage("Prioriteti randomizirani — klikni Sačuvaj da potvrdiš.");
+    setActionsUrl(null);
+  }
+
   function openPreview(categoryId: string) {
     startTransition(async () => {
       try {
@@ -315,6 +333,14 @@ export function CategoryPriorityForm({
           className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
         >
           Sačuvaj prioritet
+        </button>
+        <button
+          type="button"
+          disabled={pending || rows.length === 0}
+          onClick={randomizePriorities}
+          className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          Random prioritet
         </button>
         {message && (
           <p className="text-sm text-zinc-600">
