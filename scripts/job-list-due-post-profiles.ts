@@ -26,14 +26,34 @@ async function main() {
   let profiles: Array<{ id: string; name: string }>;
 
   if (onlyId) {
-    // Ručni workflow_dispatch — bypass schedule filter, ali poštuje job toggle.
-    profiles = (await listActiveProfiles(admin, { job: "post_listings" })).filter(
-      (p) => p.id === onlyId,
-    );
-    if (profiles.length === 0) {
+    // Ručni workflow_dispatch — bypass schedule; job toggle = skip (ne fail).
+    const statusActive = await listActiveProfiles(admin);
+    const target = statusActive.find((p) => p.id === onlyId);
+
+    if (!target) {
       throw new Error(
-        `Nema aktivnog profila s id=${onlyId} (provjeri status ili da je "${JOB_TOGGLE_LABELS.post_listings}" uključen).`,
+        `Nema aktivnog profila s id=${onlyId} (provjeri da nije pauziran/suspendovan).`,
       );
+    }
+
+    const { data } = await admin
+      .from("profiles")
+      .select("jobs_enabled")
+      .eq("id", onlyId)
+      .maybeSingle();
+
+    if (!isJobEnabledForProfile(data ?? {}, "post_listings")) {
+      await recordJobSkipped(admin, {
+        job: "post_listings",
+        profileId: target.id,
+        profileName: target.name,
+      });
+      console.log(
+        `${JOB_TOGGLE_LABELS.post_listings} je pauzirano za profil "${target.name}". Preskačem.`,
+      );
+      profiles = [];
+    } else {
+      profiles = [target];
     }
   } else {
     // Due po rasporedu među status-aktivnim, pa filtriraj job toggle + log skip.
@@ -58,7 +78,7 @@ async function main() {
           profileName: p.name,
         });
         console.log(
-          `Preskočen ${p.name}: ${JOB_TOGGLE_LABELS.post_listings} isključen.`,
+          `${JOB_TOGGLE_LABELS.post_listings} je pauzirano za profil "${p.name}". Preskačem.`,
         );
       }
     }
