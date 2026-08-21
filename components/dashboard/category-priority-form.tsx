@@ -95,7 +95,10 @@ export function CategoryPriorityForm({
   }, [profileId]);
 
   useEffect(() => {
-    void refreshActiveJob();
+    const t = window.setTimeout(() => {
+      void refreshActiveJob();
+    }, 0);
+    return () => window.clearTimeout(t);
   }, [refreshActiveJob]);
 
   // Nakon dispatcha čekaj da se pojavi job_run (Actions startup).

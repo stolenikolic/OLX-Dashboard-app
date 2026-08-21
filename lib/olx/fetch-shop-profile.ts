@@ -1,8 +1,7 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
-
-import { createClientForProfileId } from "@/lib/listings/profile-client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { Json } from "@/types/database";
 
 export type OlxShopHeaderData = {
   username: string;
@@ -11,40 +10,48 @@ export type OlxShopHeaderData = {
   profileUrl: string;
 };
 
-async function fetchOlxShopUncached(
-  profileId: string,
-  username: string,
-): Promise<OlxShopHeaderData | null> {
-  try {
-    const client = await createClientForProfileId(profileId);
-    const user = await client.getUser(username);
-    const packageName = user.shop?.package?.trim() || null;
+function fromStored(
+  stored: Json | null | undefined,
+  fallbackUsername: string,
+): OlxShopHeaderData | null {
+  if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+    const o = stored as Record<string, unknown>;
+    const username =
+      (typeof o.username === "string" && o.username) || fallbackUsername;
     return {
-      username: user.username || username,
-      avatarUrl: user.avatar || null,
-      packageName,
-      profileUrl: `https://olx.ba/shop/${encodeURIComponent(user.username || username)}`,
+      username,
+      avatarUrl: typeof o.avatarUrl === "string" ? o.avatarUrl : null,
+      packageName: typeof o.packageName === "string" ? o.packageName : null,
+      profileUrl:
+        typeof o.profileUrl === "string"
+          ? o.profileUrl
+          : `https://olx.ba/shop/${encodeURIComponent(username)}`,
     };
-  } catch (err) {
-    console.warn(
-      `OLX shop profil nije učitan (${username}):`,
-      err instanceof Error ? err.message : err,
-    );
-    return null;
   }
+  if (!fallbackUsername.trim()) return null;
+  const username = fallbackUsername.trim();
+  return {
+    username,
+    avatarUrl: null,
+    packageName: null,
+    profileUrl: `https://olx.ba/shop/${encodeURIComponent(username)}`,
+  };
 }
 
-/** Keš ~1h po profilu/username. */
-export function fetchOlxShopProfile(
+/** Čita keširani OLX shop profil iz baze (ne zove OLX). */
+export async function fetchOlxShopProfile(
   profileId: string,
   username: string,
 ): Promise<OlxShopHeaderData | null> {
-  const normalized = username.trim();
-  if (!normalized) return Promise.resolve(null);
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("profiles")
+    .select("olx_shop_profile, olx_username")
+    .eq("id", profileId)
+    .maybeSingle();
 
-  return unstable_cache(
-    () => fetchOlxShopUncached(profileId, normalized),
-    ["olx-shop-profile", profileId, normalized.toLowerCase()],
-    { revalidate: 3600 },
-  )();
+  return fromStored(
+    data?.olx_shop_profile ?? null,
+    username || data?.olx_username || "",
+  );
 }

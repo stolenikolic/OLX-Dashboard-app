@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
+import { dailyRefreshCap } from "@/lib/listings/refresh-budget";
 import {
   DEFAULT_REFRESH_SCORE_CONFIG,
   aggregateInquiries,
@@ -20,6 +21,9 @@ import {
   isJobDisabledError,
   recordJobSkipped,
 } from "@/lib/workers/jobs-enabled";
+import { getPacing } from "@/lib/workers/job-pacing";
+import { scheduleNextRun } from "@/lib/workers/job-schedule";
+import { profileOrderKey } from "@/lib/workers/profile-shuffle";
 import {
   createClientForProfile,
   loadProfileForWorker,
@@ -29,8 +33,6 @@ import type { Database, Json } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
 
-const DELAY_MIN_MS = 300;
-const DELAY_MAX_MS = 800;
 const PAGE_SIZE = 1000;
 /** OLX free manual refresh cooldown (shop packages). */
 const REFRESH_COOLDOWN_DAYS = 7;
@@ -341,6 +343,8 @@ export async function runRefreshListingsWorker(
   });
   const dryRun = options.dryRun ?? false;
   const maxRefreshes = resolveMaxRefreshes(options.maxRefreshes);
+  const pacing = getPacing(profile, "refresh_listings");
+  console.log(`Pacing refresh_listings: ${pacing.minMs}–${pacing.maxMs} ms`);
 
   const config = await loadScoreConfig(admin, profile.id);
   const client = await createClientForProfile(admin, profile);
@@ -364,7 +368,7 @@ export async function runRefreshListingsWorker(
   );
 
   const daysLeft = remainingDaysInMonth();
-  let dailyCap = Math.floor(remaining / daysLeft);
+  let dailyCap = dailyRefreshCap(profile.id, new Date(), remaining, daysLeft);
   if (maxRefreshes != null) {
     dailyCap = Math.min(dailyCap, maxRefreshes);
   }
@@ -423,6 +427,13 @@ export async function runRefreshListingsWorker(
     catDemand,
     config,
   );
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return (
+      profileOrderKey(profile.id, String(a.olxListingId)) -
+      profileOrderKey(profile.id, String(b.olxListingId))
+    );
+  });
   result.candidates = scored.length;
   result.topScores = scored.slice(0, 20).map((s) => ({
     olxListingId: s.olxListingId,
@@ -493,7 +504,7 @@ export async function runRefreshListingsWorker(
       );
 
       if (usedThisRun < dailyCap) {
-        await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
+        await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
       }
     } catch (err) {
       if (isAuthFailure(err)) {
@@ -605,6 +616,10 @@ export async function runRefreshListingsJob(
       items_failed: stats.failed,
       summary,
     });
+
+    if (status === "success" || status === "partial") {
+      await scheduleNextRun(admin, profile, "refresh_listings");
+    }
 
     await appendJobLog(admin, jobRunId, {
       level: stats.failed > 0 ? "warn" : "info",

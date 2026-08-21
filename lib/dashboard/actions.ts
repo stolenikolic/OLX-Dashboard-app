@@ -16,7 +16,6 @@ import {
   githubActionsWorkflowUrl,
   type WorkflowName,
 } from "@/lib/github/dispatch";
-import { bumpListingManual } from "@/lib/listings/refresh-listings";
 import { importListingsFromCsv } from "@/lib/listings/import-from-csv";
 import {
   countCandidateProducts,
@@ -26,21 +25,8 @@ import {
   assignPostScheduleTime,
   parseScheduleTime,
 } from "@/lib/listings/post-schedule";
-import {
-  createClientForProfileId,
-  createClientForProfileRecord,
-  loadProfileForWorker,
-} from "@/lib/listings/profile-client";
-import { syncUnmappedListings } from "@/lib/listings/sync-unmapped";
-import {
-  buildCompetitorIndex,
-  countCompetitorListings,
-  findCompetitorMin,
-} from "@/lib/pricing/competitor";
-import {
-  loadProfilePriceMode,
-  resolveProductListingPrice,
-} from "@/lib/pricing/context";
+import { loadProfileForWorker } from "@/lib/listings/profile-client";
+import { autoConfigureNewProfile } from "@/lib/workers/profile-auto-setup";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -52,6 +38,23 @@ import {
 } from "@/lib/workers/jobs-enabled";
 import { requestJobCancel } from "@/lib/workers/job-log";
 import type { Database } from "@/types/database";
+
+const DISPATCHED_MSG =
+  "Pokrenuto preko GitHub Actions — status u logovima";
+
+async function dispatchManualAction(
+  profileId: string,
+  action: string,
+  extra?: Record<string, string>,
+): Promise<{ message: string }> {
+  const result = await dispatchGitHubWorkflow("manual-action", {
+    profile_id: profileId,
+    action,
+    ...extra,
+  });
+  if (!result.ok) throw new Error(result.message);
+  return { message: DISPATCHED_MSG };
+}
 
 async function getListingForAction(listingId: string) {
   const supabase = await createClient();
@@ -70,191 +73,62 @@ async function getListingForAction(listingId: string) {
   return data;
 }
 
-export async function hideListingAction(listingId: string) {
+export async function hideListingAction(
+  listingId: string,
+): Promise<{ message: string }> {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const client = await createClientForProfileId(listing.profile_id, {
-    job: "sync_stock",
+  return dispatchManualAction(listing.profile_id, "hide", {
+    listing_id: listingId,
   });
-
-  await client.hideListing(listing.olx_listing_id!);
-
-  const admin = createAdminClient();
-  await admin
-    .from("listings")
-    .update({
-      status: "hidden",
-      error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", listingId);
-
-  revalidatePath("/oglasi");
-  revalidatePath("/");
 }
 
-export async function unhideListingAction(listingId: string) {
+export async function unhideListingAction(
+  listingId: string,
+): Promise<{ message: string }> {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const client = await createClientForProfileId(listing.profile_id, {
-    job: "sync_stock",
+  return dispatchManualAction(listing.profile_id, "unhide", {
+    listing_id: listingId,
   });
-
-  await client.unhideListing(listing.olx_listing_id!);
-
-  const admin = createAdminClient();
-  await admin
-    .from("listings")
-    .update({
-      status: "active",
-      error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", listingId);
-
-  revalidatePath("/oglasi");
-  revalidatePath("/");
 }
 
-export async function refreshListingPriceAction(listingId: string) {
+export async function refreshListingPriceAction(
+  listingId: string,
+): Promise<{ message: string }> {
   await requireUser();
   const listing = await getListingForAction(listingId);
   if (!listing.product_id) {
     throw new Error("Oglas nema povezan proizvod.");
   }
-
-  const admin = createAdminClient();
-  const client = await createClientForProfileId(listing.profile_id, {
-    job: "refresh_prices",
+  return dispatchManualAction(listing.profile_id, "refresh_price", {
+    listing_id: listingId,
   });
-
-  let newPrice: number;
-  let audit: {
-    competitor_price: number | null;
-    competitor_seller_id: number | null;
-    competitor_matched_title: string | null;
-    price_floor_applied: boolean;
-    price_origin?: Database["public"]["Enums"]["offer_origin"] | null;
-    was_import?: boolean;
-  } = {
-    competitor_price: null,
-    competitor_seller_id: null,
-    competitor_matched_title: null,
-    price_floor_applied: false,
-  };
-
-  if (listing.manual_price != null) {
-    newPrice = Math.round(Number(listing.manual_price));
-  } else {
-    const mode = await loadProfilePriceMode(admin, listing.profile_id);
-    let competitorMin = null;
-
-    if (mode === "competitor_minus_1") {
-      const count = await countCompetitorListings(admin);
-      if (count > 0) {
-        const index = await buildCompetitorIndex(admin);
-        const { data: product } = await admin
-          .from("products")
-          .select("title, categories(olx_category_id)")
-          .eq("id", listing.product_id)
-          .single();
-
-        if (product) {
-          const olxCategoryId =
-            product.categories?.olx_category_id != null
-              ? Number(product.categories.olx_category_id)
-              : null;
-          competitorMin = findCompetitorMin(
-            index,
-            product.title,
-            olxCategoryId,
-          );
-        }
-      }
-    }
-
-    const pricing = await resolveProductListingPrice(
-      admin,
-      listing.profile_id,
-      listing.product_id,
-      { mode, competitorMin, applyVariance: true },
-    );
-    newPrice = pricing.finalPrice;
-    audit = {
-      competitor_price: competitorMin?.price ?? null,
-      competitor_seller_id: competitorMin?.sellerId ?? null,
-      competitor_matched_title: competitorMin?.matchedTitle ?? null,
-      price_floor_applied: pricing.floorApplied,
-      price_origin: pricing.origin,
-      was_import: pricing.wasImport,
-    };
-  }
-
-  await client.updateListing(listing.olx_listing_id!, { price: newPrice });
-
-  await admin
-    .from("listings")
-    .update({
-      posted_price: newPrice,
-      last_price_sync_at: new Date().toISOString(),
-      error: null,
-      updated_at: new Date().toISOString(),
-      ...audit,
-    })
-    .eq("id", listingId);
-
-  revalidatePath("/oglasi");
-  revalidatePath("/");
 }
 
 /**
- * Ručno bumpanje oglasa na OLX-u (PUT /listings/:id/refresh).
- * Ako nema besplatnog budžeta, `allowPaid` mora biti true (korisnik potvrdio naplatu).
+ * Ručno bumpanje oglasa — GHA worker. allowPaid se prosljeđuje workeru.
  */
 export async function refreshListingBumpAction(
   listingId: string,
   allowPaid = false,
-): Promise<{ wasPaid: boolean }> {
+): Promise<{ message: string }> {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const admin = createAdminClient();
-  const client = await createClientForProfileId(listing.profile_id, {
-    job: "refresh_listings",
+  return dispatchManualAction(listing.profile_id, "bump", {
+    listing_id: listingId,
+    allow_paid: allowPaid ? "true" : "false",
   });
-
-  const result = await bumpListingManual(
-    admin,
-    client,
-    listing.profile_id,
-    listing.id,
-    listing.olx_listing_id!,
-    allowPaid,
-  );
-
-  revalidatePath("/oglasi");
-  revalidatePath("/");
-  return result;
 }
 
-export async function finishListingAction(listingId: string) {
+export async function finishListingAction(
+  listingId: string,
+): Promise<{ message: string }> {
   await requireUser();
   const listing = await getListingForAction(listingId);
-  const client = await createClientForProfileId(listing.profile_id);
-
-  await client.finishListing(listing.olx_listing_id!);
-
-  const admin = createAdminClient();
-  await admin
-    .from("listings")
-    .update({
-      status: "finished",
-      error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", listingId);
-
-  revalidatePath("/oglasi");
-  revalidatePath("/");
+  return dispatchManualAction(listing.profile_id, "finish", {
+    listing_id: listingId,
+  });
 }
 
 export async function setProductImportOverrideAction(
@@ -284,6 +158,7 @@ export async function dispatchWorkflowAction(
   }
   const inputs: Record<string, string> = {};
   if (profileId) inputs.profile_id = profileId;
+  if (workflow === "refresh-prices") inputs.force = "true";
   const result = await dispatchGitHubWorkflow(workflow, inputs);
   if (!result.ok) throw new Error(result.message);
   return result.message;
@@ -445,23 +320,7 @@ export async function getJobLogsAction(
 
 export async function refreshUnmappedListingsAction(profileId: string) {
   await requireAdmin();
-  const admin = createAdminClient();
-  const profile = await loadProfileForWorker(admin, profileId);
-  const username = profile.olx_username ?? profile.olx_login_email;
-  if (!username) {
-    throw new Error("Profil nema OLX username — postavi ga u podešavanjima.");
-  }
-
-  const client = await createClientForProfileRecord(profile);
-  const result = await syncUnmappedListings(
-    admin,
-    client,
-    profileId,
-    username,
-  );
-
-  revalidatePath("/oglasi");
-  return result;
+  return dispatchManualAction(profileId, "refresh_unmapped");
 }
 
 export async function searchFeedProductsAction(query: string) {
@@ -547,11 +406,9 @@ export async function hideUnmappedListingAction(unmappedId: string) {
     throw new Error("Nemapirani oglas nije pronađen.");
   }
 
-  const client = await createClientForProfileId(unmapped.profile_id);
-  await client.hideListing(unmapped.olx_listing_id);
-  await admin.from("unmapped_listings").delete().eq("id", unmappedId);
-
-  revalidatePath("/oglasi");
+  return dispatchManualAction(unmapped.profile_id, "hide_unmapped", {
+    listing_id: unmappedId,
+  });
 }
 
 export async function finishUnmappedListingAction(unmappedId: string) {
@@ -568,11 +425,9 @@ export async function finishUnmappedListingAction(unmappedId: string) {
     throw new Error("Nemapirani oglas nije pronađen.");
   }
 
-  const client = await createClientForProfileId(unmapped.profile_id);
-  await client.finishListing(unmapped.olx_listing_id);
-  await admin.from("unmapped_listings").delete().eq("id", unmappedId);
-
-  revalidatePath("/oglasi");
+  return dispatchManualAction(unmapped.profile_id, "finish_unmapped", {
+    listing_id: unmappedId,
+  });
 }
 
 export async function deleteAllUnmappedAction(profileId: string) {
@@ -621,20 +476,29 @@ export async function importExistingListingsCsvAction(
     throw new Error("Profil nema OLX username — postavi ga u podešavanjima.");
   }
 
-  const client = await createClientForProfileRecord(profile);
   const result = await importListingsFromCsv(
     admin,
-    client,
+    null,
     profileId,
     username,
     csvText,
   );
 
+  const verify = await dispatchGitHubWorkflow("manual-action", {
+    profile_id: profileId,
+    action: "verify_import",
+  });
+
   revalidatePath(`/profili/${profileId}/podesavanja`);
   revalidatePath("/oglasi");
   revalidatePath("/");
 
-  return result;
+  return {
+    ...result,
+    verifyMessage: verify.ok
+      ? DISPATCHED_MSG
+      : `CSV upisan, ali verifikacija nije pokrenuta: ${verify.message}`,
+  };
 }
 
 export async function updateProfileSettingsAction(
@@ -656,6 +520,9 @@ export async function updateProfileSettingsAction(
     olx_client_token_enc: string;
     proxy_url: string;
     jobs_enabled?: Partial<JobsEnabledMap>;
+    job_pacing?: Database["public"]["Tables"]["profiles"]["Row"]["job_pacing"];
+    price_variance_low_pct?: number | null;
+    price_variance_high_pct?: number | null;
   },
 ) {
   await requireAdmin();
@@ -695,6 +562,29 @@ export async function updateProfileSettingsAction(
     updated_at: new Date().toISOString(),
   };
 
+  if (form.job_pacing) {
+    update.job_pacing = form.job_pacing;
+  }
+  if (form.price_variance_low_pct != null) {
+    if (form.price_variance_low_pct < -0.01 || form.price_variance_low_pct > 0.05) {
+      throw new Error("Varijansa od mora biti između −1% i +5%.");
+    }
+    update.price_variance_low_pct = form.price_variance_low_pct;
+  }
+  if (form.price_variance_high_pct != null) {
+    if (form.price_variance_high_pct < -0.01 || form.price_variance_high_pct > 0.05) {
+      throw new Error("Varijansa do mora biti između −1% i +5%.");
+    }
+    update.price_variance_high_pct = form.price_variance_high_pct;
+  }
+  if (
+    form.price_variance_low_pct != null &&
+    form.price_variance_high_pct != null &&
+    form.price_variance_low_pct > form.price_variance_high_pct
+  ) {
+    throw new Error("Varijansa od ne smije biti veća od do.");
+  }
+
   if (jobsEnabled) {
     update.jobs_enabled = jobsEnabled;
   }
@@ -703,6 +593,7 @@ export async function updateProfileSettingsAction(
     update.olx_password_enc = form.olx_password_enc;
     update.olx_bearer_token = null;
     update.olx_token_expires_at = null;
+    update.olx_token_checked_at = null;
   }
   if (form.olx_client_token_enc.trim()) {
     update.olx_client_token_enc = form.olx_client_token_enc;
@@ -825,6 +716,8 @@ export async function createTestProfileAction(form: {
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "Greška");
+
+  await autoConfigureNewProfile(admin, data.id);
 
   revalidatePath("/");
   revalidatePath("/admin/korisnici");

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
+import type { OlxClient } from "@/lib/olx/client";
 import type { OlxMessage } from "@/lib/olx/types";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
@@ -13,7 +14,9 @@ import {
   ensureOlxUserId,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
+import { scheduleNextRun } from "@/lib/workers/job-schedule";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
+import { runSyncConversationsWorker } from "@/lib/messages/sync-conversations";
 import type { Database, Json } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -35,6 +38,8 @@ export type SyncMessagesOptions = {
   maxPagesPerConversation?: number;
   dryRun?: boolean;
   jobRunId?: string;
+  client?: OlxClient;
+  skipConversationSync?: boolean;
 };
 
 export type SyncMessagesResult = {
@@ -141,7 +146,21 @@ export async function runSyncMessagesWorker(
     failed: 0,
   };
 
-  const olx = await createClientForProfile(admin, profile);
+  const olx = options.client ?? (await createClientForProfile(admin, profile));
+
+  if (!options.skipConversationSync) {
+    const convStats = await runSyncConversationsWorker(admin, {
+      profileId: profile.id,
+      client: olx,
+      skipJobToggle: true,
+      dryRun,
+      jobRunId: options.jobRunId,
+    });
+    console.log(
+      `Sync conversations (preko messages): pages=${convStats.pages} upserted=${convStats.upserted} stop=${convStats.stoppedReason}`,
+    );
+  }
+
   const olxUserId = await ensureOlxUserId(admin, profile, olx);
   const targets = await loadConversationTargets(admin, profile.id, options);
 
@@ -295,6 +314,10 @@ export async function runSyncMessagesJob(
       items_failed: stats.failed,
       summary,
     });
+
+    if (!(stats.failed > 0 && stats.upserted === 0)) {
+      await scheduleNextRun(admin, profile, "sync_messages");
+    }
 
     await appendJobLog(admin, jobRunId, {
       level: "info",

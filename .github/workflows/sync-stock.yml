@@ -4,16 +4,18 @@
 name: sync-stock
 
 on:
-  schedule:
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       profile_id:
         description: "Ručno: samo jedan profil (uuid)"
         required: false
+      dry_run:
+        description: '"true" = dry-run'
+        required: false
+        default: "false"
 
 concurrency:
-  group: sync-stock
+  group: sync-stock-${{ github.event.inputs.profile_id || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -60,4 +62,9 @@ jobs:
           PROFILE_ID: ${{ matrix.profile.id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npm run job:sync-stock
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run job:sync-stock -- --dry-run
+          else
+            npm run job:sync-stock
+          fi

@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { ensureTechZoneProfile } from "@/lib/listings/ensure-profile";
 import { postProductListing } from "@/lib/listings/post-listing";
 import { OlxClient } from "@/lib/olx/client";

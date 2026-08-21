@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { ensureTechZoneProfile } from "@/lib/listings/ensure-profile";
 import { importListingsFromOlx } from "@/lib/listings/import-from-olx";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";

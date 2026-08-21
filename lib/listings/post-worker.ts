@@ -29,6 +29,7 @@ import {
   isJobDisabledError,
   recordJobSkipped,
 } from "@/lib/workers/jobs-enabled";
+import { getPacing } from "@/lib/workers/job-pacing";
 import {
   createClientForProfile,
   loadProfileForWorker,
@@ -154,9 +155,13 @@ export async function runPostListingsWorker(
 
   const maxPosts = resolveMaxPosts(options.maxPosts);
   const dryRun = options.dryRun ?? false;
-  const postDelayMinMs = options.postDelayMinMs ?? 500;
-  const postDelayMaxMs = options.postDelayMaxMs ?? 500;
+  const pacing = getPacing(profile, "post_listings");
+  const postDelayMinMs = options.postDelayMinMs ?? pacing.minMs;
+  const postDelayMaxMs = options.postDelayMaxMs ?? pacing.maxMs;
   const jobRunId = options.jobRunId;
+  console.log(
+    `Pacing post_listings: ${postDelayMinMs}–${postDelayMaxMs} ms`,
+  );
 
   let client: OlxClient | null = null;
   if (!dryRun || !options.skipImport) {
@@ -346,6 +351,7 @@ export async function runPostListingsWorker(
           profileId: profile.id,
           productId,
           client: client!,
+          jobRunId,
         });
 
         if (!posted.ok || posted.dryRun) {

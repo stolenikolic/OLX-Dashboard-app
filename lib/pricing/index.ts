@@ -28,4 +28,4 @@ export {
   type ProductPricing,
   type ProfilePricing,
 } from "@/lib/pricing/types";
-export { applyRandomVariance } from "@/lib/pricing/variance";
+export { applyRandomVariance, applyRangeVariance } from "@/lib/pricing/variance";

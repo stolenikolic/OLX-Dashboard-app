@@ -9,7 +9,7 @@ import type {
   PriceCalculationResult,
   ProfilePricing,
 } from "@/lib/pricing/types";
-import { applyRandomVariance } from "@/lib/pricing/variance";
+import { applyRandomVariance, applyRangeVariance } from "@/lib/pricing/variance";
 
 function roundKm(value: number): number {
   return Math.round(value);
@@ -170,12 +170,21 @@ export function calculatePrice(
     };
   }
 
-  const { price: finalPrice, variancePct } = applyRandomVariance(
-    priceWithSurcharge,
-    global.random_pct_min,
-    global.random_pct_max,
-    rng,
-  );
+  const { price: finalPrice, variancePct } =
+    input.profile.varianceLowPct != null &&
+    input.profile.varianceHighPct != null
+      ? applyRangeVariance(
+          priceWithSurcharge,
+          input.profile.varianceLowPct,
+          input.profile.varianceHighPct,
+          rng,
+        )
+      : applyRandomVariance(
+          priceWithSurcharge,
+          global.random_pct_min,
+          global.random_pct_max,
+          rng,
+        );
 
   return {
     basePrice: chosen.basePrice,

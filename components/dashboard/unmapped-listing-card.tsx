@@ -22,10 +22,15 @@ export function UnmappedListingCard({
   const [connectOpen, setConnectOpen] = useState(false);
   const olxUrl = `https://olx.ba/artikal/${listing.olx_listing_id}`;
 
-  function run(action: () => Promise<void>) {
+  function run(action: () => Promise<{ message?: string } | void>) {
     startTransition(() => {
       action()
-        .then(() => router.refresh())
+        .then((res) => {
+          if (res && "message" in res && res.message) {
+            alert(res.message);
+          }
+          router.refresh();
+        })
         .catch((err) => {
           alert(err instanceof Error ? err.message : "Greška");
         });

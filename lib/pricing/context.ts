@@ -80,7 +80,7 @@ export async function loadProfilePricing(
 ): Promise<ProfilePricing> {
   const { data, error } = await admin
     .from("profiles")
-    .select("kurs, kurs_uvoz")
+    .select("kurs, kurs_uvoz, price_variance_low_pct, price_variance_high_pct")
     .eq("id", profileId)
     .single();
 
@@ -91,6 +91,14 @@ export async function loadProfilePricing(
   return {
     kurs: Number(data.kurs),
     kurs_uvoz: Number(data.kurs_uvoz),
+    varianceLowPct:
+      data.price_variance_low_pct != null
+        ? Number(data.price_variance_low_pct)
+        : null,
+    varianceHighPct:
+      data.price_variance_high_pct != null
+        ? Number(data.price_variance_high_pct)
+        : null,
   };
 }
 

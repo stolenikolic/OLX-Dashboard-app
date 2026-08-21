@@ -13,6 +13,7 @@ const jobLabels: Record<Database["public"]["Enums"]["job_type"], string> = {
   refresh_listings: "Obnavljanje oglasa",
   sync_messages: "Poruke (chat)",
   sync_competitors: "Konkurenti (cijene)",
+  manual_action: "Ručna akcija",
 };
 
 const statusColors: Record<JobStatus, string> = {

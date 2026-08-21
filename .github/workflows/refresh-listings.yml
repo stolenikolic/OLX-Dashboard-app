@@ -5,16 +5,18 @@
 name: refresh-listings
 
 on:
-  schedule:
-    - cron: "30 4 * * *"
   workflow_dispatch:
     inputs:
       profile_id:
         description: "Ručno: samo jedan profil (uuid)"
         required: false
+      dry_run:
+        description: '"true" = dry-run'
+        required: false
+        default: "false"
 
 concurrency:
-  group: refresh-listings
+  group: refresh-listings-${{ github.event.inputs.profile_id || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -63,4 +65,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           REFRESH_LISTINGS_MAX_PER_RUN: ${{ secrets.REFRESH_LISTINGS_MAX_PER_RUN }}
-        run: npm run job:refresh-listings
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run job:refresh-listings -- --dry-run
+          else
+            npm run job:refresh-listings
+          fi

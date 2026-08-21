@@ -9,7 +9,7 @@ import {
   DEFAULT_COMPETITOR_MARGIN_DROP,
   DEFAULT_COMPETITOR_UNDERCUT_KM,
 } from "@/lib/pricing/types";
-import { applyRandomVariance } from "@/lib/pricing/variance";
+import { applyRandomVariance, applyRangeVariance } from "@/lib/pricing/variance";
 
 export type CompetitorMatchInfo = {
   price: number;
@@ -97,12 +97,21 @@ export function resolveListingPrice(
     };
   }
 
-  const { price: finalPrice, variancePct } = applyRandomVariance(
-    base,
-    calcInput.global.random_pct_min,
-    calcInput.global.random_pct_max,
-    rng,
-  );
+  const { price: finalPrice, variancePct } =
+    calcInput.profile.varianceLowPct != null &&
+    calcInput.profile.varianceHighPct != null
+      ? applyRangeVariance(
+          base,
+          calcInput.profile.varianceLowPct,
+          calcInput.profile.varianceHighPct,
+          rng,
+        )
+      : applyRandomVariance(
+          base,
+          calcInput.global.random_pct_min,
+          calcInput.global.random_pct_max,
+          rng,
+        );
 
   return {
     finalPrice,

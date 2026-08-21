@@ -1,4 +1,8 @@
 import { renderDescription } from "@/lib/listings/description";
+import {
+  getPayloadOptionals,
+  permuteObjectKeys,
+} from "@/lib/listings/payload-shape";
 import { sanitizeOlxTitle } from "@/lib/listings/sanitize-title";
 import type { OlxListingAttribute } from "@/lib/olx/types";
 import type { CreateListingPayload } from "@/lib/olx/types";
@@ -17,6 +21,7 @@ export function truncateOlxTitle(title: string): string {
 }
 
 export type ListingBuildInput = {
+  profileId: string;
   title: string;
   olxCategoryId: number;
   price: number;
@@ -30,18 +35,29 @@ export function buildListingPayload(input: ListingBuildInput): CreateListingPayl
     input.descriptionTemplate,
     input.title,
     input.specs,
+    input.profileId,
   );
 
-  return {
+  const optionals = getPayloadOptionals(input.profileId);
+  const raw: Record<string, unknown> = {
     title: truncateOlxTitle(input.title),
     category_id: input.olxCategoryId,
     description,
     price: input.price,
     listing_type: "sell",
     state: "new",
-    price_by_agreement: false,
-    quantity: 1,
     available: false,
-    attributes: input.attributes,
   };
+
+  if (optionals.includePriceByAgreement) {
+    raw.price_by_agreement = false;
+  }
+  if (optionals.includeQuantity) {
+    raw.quantity = 1;
+  }
+  if (input.attributes.length > 0) {
+    raw.attributes = input.attributes;
+  }
+
+  return permuteObjectKeys(raw, input.profileId) as CreateListingPayload;
 }

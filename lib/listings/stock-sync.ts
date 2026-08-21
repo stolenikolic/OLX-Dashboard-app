@@ -7,6 +7,9 @@ import {
   isJobDisabledError,
   recordJobSkipped,
 } from "@/lib/workers/jobs-enabled";
+import { getPacing } from "@/lib/workers/job-pacing";
+import { scheduleNextRun } from "@/lib/workers/job-schedule";
+import { sortByProfileOrder } from "@/lib/workers/profile-shuffle";
 import {
   createClientForProfile,
   loadProfileForWorker,
@@ -133,8 +136,10 @@ export async function runStockSyncWorker(
   });
   const dryRun = options.dryRun ?? false;
   const maxActions = resolveMaxActions(options.maxActions);
-  const delayMinMs = options.delayMinMs ?? 500;
-  const delayMaxMs = options.delayMaxMs ?? 1500;
+  const pacing = getPacing(profile, "sync_stock");
+  const delayMinMs = options.delayMinMs ?? pacing.minMs;
+  const delayMaxMs = options.delayMaxMs ?? pacing.maxMs;
+  console.log(`Pacing sync_stock: ${delayMinMs}–${delayMaxMs} ms`);
 
   const result: StockSyncResult = {
     hideCandidates: 0,
@@ -146,8 +151,16 @@ export async function runStockSyncWorker(
     errors: [],
   };
 
-  const toHide = await loadHideCandidates(admin, profile.id);
-  const toUnhide = await loadUnhideCandidates(admin, profile.id);
+  const toHide = sortByProfileOrder(
+    await loadHideCandidates(admin, profile.id),
+    profile.id,
+    (row) => row.id,
+  );
+  const toUnhide = sortByProfileOrder(
+    await loadUnhideCandidates(admin, profile.id),
+    profile.id,
+    (row) => row.id,
+  );
 
   result.hideCandidates = toHide.length;
   result.unhideCandidates = toUnhide.length;
@@ -338,6 +351,10 @@ export async function runStockSyncJob(
       items_failed: stats.failed,
       summary,
     });
+
+    if (status === "success" || status === "partial") {
+      await scheduleNextRun(admin, profile, "sync_stock");
+    }
 
     await appendJobLog(admin, jobRunId, {
       level: stats.failed > 0 ? "warn" : "info",

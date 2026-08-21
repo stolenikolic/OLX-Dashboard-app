@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
+import type { OlxClient } from "@/lib/olx/client";
 import type { OlxConversation } from "@/lib/olx/types";
 import { handleOlxAuthFailure, isAuthFailure } from "@/lib/olx/suspension";
 import { notifyJobFailed } from "@/lib/notify/email";
@@ -12,6 +13,8 @@ import {
   createClientForProfile,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
+import { persistOlxShopProfile } from "@/lib/olx/shop-profile-cache";
+import { scheduleNextRun } from "@/lib/workers/job-schedule";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
 import type { Database, Json } from "@/types/database";
 
@@ -30,6 +33,10 @@ export type SyncConversationsOptions = {
   jobRunId?: string;
   /** Safety cap na broj stranica (env SYNC_CONVERSATIONS_MAX_PAGES). */
   maxPages?: number;
+  /** Dijeljeni klijent (npr. iz sync_messages). */
+  client?: OlxClient;
+  /** Preskoči jobs_enabled za sync_conversations (interni poziv). */
+  skipJobToggle?: boolean;
 };
 
 export type SyncConversationsResult = {
@@ -102,9 +109,11 @@ export async function runSyncConversationsWorker(
   admin: Admin,
   options: SyncConversationsOptions,
 ): Promise<SyncConversationsResult> {
-  const profile = await loadProfileForWorker(admin, options.profileId, {
-    job: "sync_conversations",
-  });
+  const profile = await loadProfileForWorker(
+    admin,
+    options.profileId,
+    options.skipJobToggle ? undefined : { job: "sync_conversations" },
+  );
   const dryRun = options.dryRun ?? false;
   const backfillMonths = options.backfillMonths;
   const maxPages =
@@ -121,7 +130,7 @@ export async function runSyncConversationsWorker(
     stoppedReason: "end",
   };
 
-  const olx = await createClientForProfile(admin, profile);
+  const olx = options.client ?? (await createClientForProfile(admin, profile));
 
   const cutoff =
     backfillMonths != null
@@ -219,6 +228,10 @@ export async function runSyncConversationsWorker(
     }
   }
 
+  if (!dryRun) {
+    await persistOlxShopProfile(admin, olx, profile);
+  }
+
   return result;
 }
 
@@ -276,6 +289,8 @@ export async function runSyncConversationsJob(
       items_failed: 0,
       summary,
     });
+
+    await scheduleNextRun(admin, profile, "sync_conversations");
 
     await appendJobLog(admin, jobRunId, {
       level: "info",

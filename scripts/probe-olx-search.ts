@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 async function main() {
   const base = "https://olx.ba/api/search";
   const tests = [

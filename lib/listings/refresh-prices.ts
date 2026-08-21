@@ -7,6 +7,9 @@ import {
   isJobDisabledError,
   recordJobSkipped,
 } from "@/lib/workers/jobs-enabled";
+import { getPacing } from "@/lib/workers/job-pacing";
+import { scheduleNextRun } from "@/lib/workers/job-schedule";
+import { sortByProfileOrder } from "@/lib/workers/profile-shuffle";
 import {
   createClientForProfile,
   loadProfileForWorker,
@@ -124,6 +127,7 @@ async function loadActiveListings(
     from += PAGE_SIZE;
   }
 
+  sortByProfileOrder(all, profileId, (row) => row.id);
   return all;
 }
 
@@ -136,8 +140,10 @@ export async function runRefreshPricesWorker(
   });
   const dryRun = options.dryRun ?? false;
   const maxUpdates = resolveMaxUpdates(options.maxUpdates);
-  const delayMinMs = options.delayMinMs ?? 200;
-  const delayMaxMs = options.delayMaxMs ?? 400;
+  const pacing = getPacing(profile, "refresh_prices");
+  const delayMinMs = options.delayMinMs ?? pacing.minMs;
+  const delayMaxMs = options.delayMaxMs ?? pacing.maxMs;
+  console.log(`Pacing refresh_prices: ${delayMinMs}–${delayMaxMs} ms`);
 
   const result: RefreshPricesResult = {
     scanned: 0,
@@ -370,6 +376,10 @@ export async function runRefreshPricesJob(
       items_failed: stats.failed,
       summary,
     });
+
+    if (status === "success" || status === "partial") {
+      await scheduleNextRun(admin, profile, "refresh_prices");
+    }
 
     await appendJobLog(admin, jobRunId, {
       level: stats.failed > 0 ? "warn" : "info",

@@ -765,6 +765,8 @@ export type Database = {
           device_name: string | null
           id: string
           jobs_enabled: Json
+          job_pacing: Json | null
+          job_schedule: Json | null
           kurs: number
           kurs_uvoz: number
           name: string
@@ -774,8 +776,11 @@ export type Database = {
           olx_login_email: string | null
           olx_password_enc: string | null
           olx_token_expires_at: string | null
+          olx_token_checked_at: string | null
           olx_user_id: number | null
           olx_username: string | null
+          olx_shop_profile: Json | null
+          olx_shop_profile_synced_at: string | null
           post_schedule_time: string | null
           posting_attempt_count: number
           posting_attempt_date: string | null
@@ -783,6 +788,8 @@ export type Database = {
           posting_window_started_at: string | null
           price_mode: Database["public"]["Enums"]["price_mode"]
           price_refresh_days: number
+          price_variance_high_pct: number | null
+          price_variance_low_pct: number | null
           proxy_url: string | null
           refresh_free_count: number | null
           refresh_free_limit: number | null
@@ -802,6 +809,8 @@ export type Database = {
           device_name?: string | null
           id?: string
           jobs_enabled?: Json
+          job_pacing?: Json | null
+          job_schedule?: Json | null
           kurs?: number
           kurs_uvoz?: number
           name: string
@@ -811,8 +820,11 @@ export type Database = {
           olx_login_email?: string | null
           olx_password_enc?: string | null
           olx_token_expires_at?: string | null
+          olx_token_checked_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          olx_shop_profile?: Json | null
+          olx_shop_profile_synced_at?: string | null
           post_schedule_time?: string | null
           posting_attempt_count?: number
           posting_attempt_date?: string | null
@@ -820,6 +832,8 @@ export type Database = {
           posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
+          price_variance_high_pct?: number | null
+          price_variance_low_pct?: number | null
           proxy_url?: string | null
           refresh_free_count?: number | null
           refresh_free_limit?: number | null
@@ -839,6 +853,8 @@ export type Database = {
           device_name?: string | null
           id?: string
           jobs_enabled?: Json
+          job_pacing?: Json | null
+          job_schedule?: Json | null
           kurs?: number
           kurs_uvoz?: number
           name?: string
@@ -848,8 +864,11 @@ export type Database = {
           olx_login_email?: string | null
           olx_password_enc?: string | null
           olx_token_expires_at?: string | null
+          olx_token_checked_at?: string | null
           olx_user_id?: number | null
           olx_username?: string | null
+          olx_shop_profile?: Json | null
+          olx_shop_profile_synced_at?: string | null
           post_schedule_time?: string | null
           posting_attempt_count?: number
           posting_attempt_date?: string | null
@@ -857,6 +876,8 @@ export type Database = {
           posting_window_started_at?: string | null
           price_mode?: Database["public"]["Enums"]["price_mode"]
           price_refresh_days?: number
+          price_variance_high_pct?: number | null
+          price_variance_low_pct?: number | null
           proxy_url?: string | null
           refresh_free_count?: number | null
           refresh_free_limit?: number | null
@@ -987,6 +1008,7 @@ export type Database = {
         | "refresh_listings"
         | "sync_messages"
         | "sync_competitors"
+        | "manual_action"
       listing_status:
         | "draft"
         | "active"
@@ -1138,6 +1160,7 @@ export const Constants = {
         "refresh_listings",
         "sync_messages",
         "sync_competitors",
+        "manual_action",
       ],
       listing_status: [
         "draft",

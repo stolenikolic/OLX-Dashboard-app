@@ -2,6 +2,8 @@
  * Audit OLX required attributes vs DB mappings for postable categories.
  * Run: npx tsx --env-file=.env.local scripts/audit-olx-required-attrs.ts
  */
+import "./_olx-guard";
+
 import { OlxClient } from "@/lib/olx/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 

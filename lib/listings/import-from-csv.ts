@@ -127,7 +127,7 @@ async function upsertMappings(
  */
 export async function importListingsFromCsv(
   admin: Admin,
-  client: OlxClient,
+  client: OlxClient | null,
   profileId: string,
   username: string,
   csvText: string,
@@ -158,9 +158,14 @@ export async function importListingsFromCsv(
     return result;
   }
 
-  console.log("Povlačenje OLX oglasa profila…");
-  const olxPrices = await fetchAllUserListingPrices(client, username);
-  console.log(`OLX oglasa na profilu: ${olxPrices.size}`);
+  let olxPrices: Map<number, number> | null = null;
+  if (client) {
+    console.log("Povlačenje OLX oglasa profila…");
+    olxPrices = await fetchAllUserListingPrices(client, username);
+    console.log(`OLX oglasa na profilu: ${olxPrices.size}`);
+  } else {
+    console.log("CSV import bez OLX verifikacije (verify_import ide preko GHA).");
+  }
 
   console.log("Lookup feed UUID → products…");
   const feedUuids = parsed.pairs.map((p) => p.feedUuid);
@@ -180,10 +185,14 @@ export async function importListingsFromCsv(
   }> = [];
 
   for (const pair of parsed.pairs) {
-    const olxPrice = olxPrices.get(pair.olxListingId);
-    if (olxPrice == null) {
-      result.skippedNotOnOlx++;
-      continue;
+    let postedPrice = 0;
+    if (olxPrices) {
+      const olxPrice = olxPrices.get(pair.olxListingId);
+      if (olxPrice == null) {
+        result.skippedNotOnOlx++;
+        continue;
+      }
+      postedPrice = olxPrice;
     }
 
     const productId = productsByFeed.get(pair.feedUuid);
@@ -197,7 +206,7 @@ export async function importListingsFromCsv(
       product_id: productId,
       feed_uuid: pair.feedUuid,
       olx_listing_id: pair.olxListingId,
-      posted_price: olxPrice,
+      posted_price: postedPrice,
     });
   }
 

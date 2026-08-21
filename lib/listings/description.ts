@@ -1,19 +1,16 @@
+import { renderSpecsBlock } from "@/lib/listings/description-shape";
+
 const DEFAULT_TEMPLATE = `{{title}}
 
-{{specs}}
-
-TechZone — garancija i brza isporuka.`;
+{{specs}}`;
 
 export function renderDescription(
   template: string | null | undefined,
   title: string,
   specs: Record<string, unknown>,
+  profileId: string,
 ): string {
-  const specLines = Object.entries(specs)
-    .filter(([, v]) => v != null && String(v).trim() !== "")
-    .map(([k, v]) => `${k}: ${v}`)
-    .join("\n");
-
+  const specLines = renderSpecsBlock(specs, profileId);
   const tpl = template?.trim() || DEFAULT_TEMPLATE;
   return tpl
     .replace(/\{\{title\}\}/g, title)

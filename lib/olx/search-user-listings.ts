@@ -1,3 +1,5 @@
+import { assertOlxAllowed } from "@/lib/olx/net-guard";
+
 /**
  * Javni search API — sort_order asc/desc radi (za razliku od /users/.../listings).
  * https://olx.ba/api/search?user_id=…&per_page=1000&sort_by=date&sort_order=desc|asc
@@ -129,6 +131,7 @@ async function pullDirection(
 export async function fetchAllUserListingsViaSearch(
   userId: number,
 ): Promise<Map<number, OlxSearchListing>> {
+  assertOlxAllowed("search-user-listings");
   if (!Number.isFinite(userId) || userId <= 0) {
     throw new Error(`Neispravan OLX user_id: ${userId}`);
   }

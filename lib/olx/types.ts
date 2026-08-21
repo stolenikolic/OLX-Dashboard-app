@@ -93,8 +93,8 @@ export type CreateListingPayload = {
   price: number;
   listing_type: "sell";
   state: "new" | "used";
-  price_by_agreement: boolean;
-  quantity: number;
+  price_by_agreement?: boolean;
+  quantity?: number;
   available: boolean;
   attributes?: OlxListingAttribute[];
 };

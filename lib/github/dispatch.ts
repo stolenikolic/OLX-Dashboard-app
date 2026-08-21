@@ -6,18 +6,19 @@ export type WorkflowName =
   | "delete-unmapped"
   | "sync-conversations"
   | "refresh-listings"
-  | "sync-messages";
+  | "sync-messages"
+  | "manual-action";
 
 function githubRepoParts():
   | { ok: true; owner: string; repoName: string; token: string }
   | { ok: false; message: string } {
-  const token = process.env.GH_DISPATCH_TOKEN;
-  const repo = process.env.GITHUB_REPO;
+  const token = process.env.GH_DISPATCH_TOKEN || process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPO || process.env.GITHUB_REPOSITORY;
 
   if (!token || !repo) {
     return {
       ok: false,
-      message: "GH_DISPATCH_TOKEN ili GITHUB_REPO nisu postavljeni.",
+      message: "GH_DISPATCH_TOKEN/GITHUB_TOKEN ili GITHUB_REPO nisu postavljeni.",
     };
   }
 

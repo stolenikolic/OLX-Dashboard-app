@@ -2,12 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ensureProfileIdentity } from "@/lib/profile/identity";
 import { OlxClient, createLoggedInClient } from "@/lib/olx/client";
+import { assertOlxAllowed } from "@/lib/olx/net-guard";
 import { notifyAdmin } from "@/lib/notify/email";
 import { maybeResumeProfile } from "@/lib/olx/suspension";
 import {
   isJobEnabledForProfile,
   JobDisabledError,
 } from "@/lib/workers/jobs-enabled-config";
+import { fnv1a } from "@/lib/workers/profile-shuffle";
 import type { Database, Json } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -28,6 +30,7 @@ export type ProfileForWorker = {
   olx_client_token_enc: string | null;
   olx_bearer_token: string | null;
   olx_token_expires_at: string | null;
+  olx_token_checked_at: string | null;
   olx_user_id: number | null;
   device_name: string | null;
   user_agent: string | null;
@@ -36,6 +39,11 @@ export type ProfileForWorker = {
   description_template: string | null;
   suspended_until: string | null;
   jobs_enabled: Json;
+  job_pacing: Json | null;
+  job_schedule: Json | null;
+  price_refresh_days: number;
+  price_variance_low_pct: number | null;
+  price_variance_high_pct: number | null;
 };
 
 const PROFILE_SELECT = `
@@ -50,6 +58,7 @@ const PROFILE_SELECT = `
   olx_client_token_enc,
   olx_bearer_token,
   olx_token_expires_at,
+  olx_token_checked_at,
   olx_user_id,
   device_name,
   user_agent,
@@ -57,7 +66,12 @@ const PROFILE_SELECT = `
   daily_post_limit,
   description_template,
   suspended_until,
-  jobs_enabled
+  jobs_enabled,
+  job_pacing,
+  job_schedule,
+  price_refresh_days,
+  price_variance_low_pct,
+  price_variance_high_pct
 `;
 
 export async function loadProfileForWorker(
@@ -132,14 +146,31 @@ async function saveTokenCache(
   token: string,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
+  const checkedAt = new Date().toISOString();
   await admin
     .from("profiles")
     .update({
       olx_bearer_token: token,
       olx_token_expires_at: expiresAt,
+      olx_token_checked_at: checkedAt,
       updated_at: new Date().toISOString(),
     })
     .eq("id", profileId);
+}
+
+function tokenCheckIntervalMs(profileId: string): number {
+  const hours = 12 + (fnv1a(`tokencheck:${profileId}`) % 37);
+  return hours * 60 * 60 * 1000;
+}
+
+function tokenCheckIsFresh(
+  checkedAt: string | null,
+  profileId: string,
+): boolean {
+  if (!checkedAt) return false;
+  const ts = Date.parse(checkedAt);
+  if (!Number.isFinite(ts)) return false;
+  return Date.now() - ts < tokenCheckIntervalMs(profileId);
 }
 
 export async function ensureOlxUserId(
@@ -177,6 +208,7 @@ function buildClientConfig(
     deviceName: identity.device_name,
     userAgent: identity.user_agent,
     proxyUrl: profile.proxy_url,
+    retrySeed: profile.id,
   };
 }
 
@@ -184,6 +216,7 @@ export async function createClientForProfile(
   admin: Admin,
   profile: ProfileForWorker,
 ): Promise<OlxClient> {
+  assertOlxAllowed("createClientForProfile");
   const identity = ensureProfileIdentity(
     profile.id,
     profile.name,
@@ -212,23 +245,27 @@ export async function createClientForProfile(
     );
   }
 
-  // Koristi keširani token dok OLX ga ne odbije — ne forsiraj login po lokalnom TTL-u.
+  // Koristi keširani token dok OLX ga ne odbije — /me samo svakih 12–48h po profilu.
   if (profile.olx_bearer_token) {
     const cached = new OlxClient(
       buildClientConfig(profile, identity, profile.olx_bearer_token),
     );
+    if (tokenCheckIsFresh(profile.olx_token_checked_at, profile.id)) {
+      return cached;
+    }
     try {
       const me = await cached.me();
+      const nowIso = new Date().toISOString();
+      const patch: Database["public"]["Tables"]["profiles"]["Update"] = {
+        olx_token_checked_at: nowIso,
+        updated_at: nowIso,
+      };
       if (profile.olx_user_id == null && me?.id) {
-        await admin
-          .from("profiles")
-          .update({
-            olx_user_id: me.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", profile.id);
+        patch.olx_user_id = me.id;
         profile.olx_user_id = me.id;
       }
+      await admin.from("profiles").update(patch).eq("id", profile.id);
+      profile.olx_token_checked_at = nowIso;
       return cached;
     } catch {
       console.warn(
@@ -237,6 +274,7 @@ export async function createClientForProfile(
       await clearProfileTokenCache(admin, profile.id);
       profile.olx_bearer_token = null;
       profile.olx_token_expires_at = null;
+      profile.olx_token_checked_at = null;
       await notifyAdmin({
         subject: `[OLX Dashboard] Token istekao: ${profile.name}`,
         body: `Keširani OLX token za profil "${profile.name}" nije validan. Izvršava se novi login.`,
@@ -248,6 +286,7 @@ export async function createClientForProfile(
     deviceName: identity.device_name,
     userAgent: identity.user_agent,
     proxyUrl: profile.proxy_url,
+    retrySeed: profile.id,
   });
 
   const token = client.getToken();
@@ -317,6 +356,7 @@ export async function clearProfileTokenCache(
     .update({
       olx_bearer_token: null,
       olx_token_expires_at: null,
+      olx_token_checked_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", profileId);

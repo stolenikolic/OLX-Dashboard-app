@@ -22,6 +22,8 @@ export type ProductPricing = {
 export type ProfilePricing = {
   kurs: number;
   kurs_uvoz: number;
+  varianceLowPct?: number | null;
+  varianceHighPct?: number | null;
 };
 
 export type GlobalPricing = {

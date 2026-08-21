@@ -1,3 +1,5 @@
+import { assertOlxAllowed } from "@/lib/olx/net-guard";
+import { fnv1a } from "@/lib/workers/profile-shuffle";
 import type {
   CreateListingPayload,
   OlxAttribute,
@@ -78,6 +80,8 @@ export type OlxClientConfig = {
   userAgent?: string | null;
   /** Optional per-profile proxy (e.g. http://user:pass@host:port). */
   proxyUrl?: string | null;
+  /** Seed for per-profile retry backoff (typically profile.id). */
+  retrySeed?: string;
 };
 
 type RequestInitWithDispatcher = RequestInit & { dispatcher?: unknown };
@@ -91,8 +95,11 @@ export class OlxClient {
   private userAgent: string | null;
   private proxyUrl: string | null;
   private dispatcher: unknown;
+  private retryBaseMs: number;
+  private retryMaxAttempts: number;
 
   constructor(config: OlxClientConfig = {}) {
+    assertOlxAllowed("OlxClient");
     this.baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.token = config.token ?? null;
     this.clientId = config.clientId ?? null;
@@ -100,6 +107,9 @@ export class OlxClient {
     this.deviceName = config.deviceName ?? DEFAULT_DEVICE_NAME;
     this.userAgent = config.userAgent ?? null;
     this.proxyUrl = config.proxyUrl ?? null;
+    const seed = config.retrySeed ?? "default";
+    this.retryBaseMs = 1400 + (fnv1a(`retry-base:${seed}`) % 1400);
+    this.retryMaxAttempts = 4 + (fnv1a(`retry-n:${seed}`) % 3);
   }
 
   getToken(): string | null {
@@ -140,13 +150,20 @@ export class OlxClient {
   private async requestWithRetry(
     url: string,
     init: RequestInitWithDispatcher,
-    maxAttempts = 5,
+    maxAttempts = this.retryMaxAttempts,
   ): Promise<Response> {
     let lastResponse: Response | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       lastResponse = await fetch(url, init);
       if (!this.shouldRetryStatus(lastResponse.status)) return lastResponse;
-      const waitMs = Math.min(60_000, 2000 * 2 ** (attempt - 1));
+      const waitMs = Math.min(
+        60_000,
+        Math.round(
+          this.retryBaseMs *
+            2 ** (attempt - 1) *
+            (0.65 + Math.random() * 0.7),
+        ),
+      );
       await new Promise((r) => setTimeout(r, waitMs));
     }
     return lastResponse!;
@@ -291,6 +308,41 @@ export class OlxClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image_url: imageUrl }),
     });
+  }
+
+  async uploadListingImageBinary(
+    listingId: number,
+    bytes: Buffer | Uint8Array,
+    filename: string,
+  ): Promise<OlxListingImage[]> {
+    const url = `${this.baseUrl}/listings/${listingId}/image-upload`;
+    const dispatcher = await this.getDispatcher();
+    const fd = new FormData();
+    const blob = new Blob([new Uint8Array(bytes)], { type: "image/jpeg" });
+    fd.append("images[]", blob, filename);
+
+    const headers = this.baseHeaders();
+    // Do NOT set Content-Type — FormData boundary must be automatic.
+
+    const requestInit: RequestInitWithDispatcher = {
+      method: "POST",
+      headers,
+      body: fd,
+    };
+    if (dispatcher) {
+      requestInit.dispatcher = dispatcher;
+    }
+
+    const response = await this.requestWithRetry(url, requestInit);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new OlxApiError(
+        `OLX API ${response.status} ${response.statusText} za /listings/${listingId}/image-upload (multipart)`,
+        response.status,
+        text.slice(0, 2000),
+      );
+    }
+    return (text ? JSON.parse(text) : null) as OlxListingImage[];
   }
 
   async setMainImage(

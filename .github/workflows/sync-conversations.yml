@@ -4,8 +4,6 @@
 name: sync-conversations
 
 on:
-  schedule:
-    - cron: "0 2 * * *"
   workflow_dispatch:
     inputs:
       profile_id:
@@ -17,7 +15,7 @@ on:
         default: ""
 
 concurrency:
-  group: sync-conversations
+  group: sync-conversations-${{ github.event.inputs.profile_id || 'all' }}
   cancel-in-progress: false
 
 jobs:

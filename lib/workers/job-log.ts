@@ -99,7 +99,26 @@ export async function finishJobRun(
     .eq("id", jobRunId);
 }
 
-/** Profili s aktivnim post_listings jobom (running). */
+export async function isJobRunningForProfile(
+  admin: Admin,
+  profileId: string,
+  job: JobType,
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("job_runs")
+    .select("id")
+    .eq("profile_id", profileId)
+    .eq("job", job)
+    .eq("status", "running")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Provjera running joba nije uspjela: ${error.message}`);
+  }
+  return data != null;
+}
+
 export async function getProfileIdsWithRunningPostJob(
   admin: Admin,
 ): Promise<Set<string>> {

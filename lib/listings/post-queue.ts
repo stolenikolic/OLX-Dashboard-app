@@ -4,6 +4,8 @@ import {
   getWindowEndAt,
   isPostingWindowOpen,
 } from "@/lib/listings/post-schedule-time";
+import { isProductEligibleNow } from "@/lib/listings/catalog-stagger";
+import { sortByProfileOrder } from "@/lib/workers/profile-shuffle";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -253,15 +255,17 @@ export async function loadListedProductIds(
 async function loadEligibleProductIds(
   admin: Admin,
   categoryId: string,
+  profileId: string,
 ): Promise<string[]> {
   const ids: string[] = [];
   let from = 0;
+  const now = new Date();
 
   for (;;) {
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await admin
       .from("products")
-      .select("id")
+      .select("id, created_at")
       .eq("category_id", categoryId)
       .eq("in_feed", true)
       .eq("blacklisted", false)
@@ -274,23 +278,27 @@ async function loadEligibleProductIds(
     }
 
     const rows = data ?? [];
-    for (const row of rows) ids.push(row.id);
+    for (const row of rows) {
+      if (!isProductEligibleNow(profileId, row.id, row.created_at, now)) continue;
+      ids.push(row.id);
+    }
 
     if (rows.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
 
+  sortByProfileOrder(ids, profileId, (id) => id);
   return ids;
 }
 
 export async function findCandidateProductIds(
   admin: Admin,
-  _profileId: string,
+  profileId: string,
   categoryId: string,
   listedProductIds: Set<string>,
   limit: number,
 ): Promise<string[]> {
-  const eligible = await loadEligibleProductIds(admin, categoryId);
+  const eligible = await loadEligibleProductIds(admin, categoryId, profileId);
   const candidates: string[] = [];
   for (const id of eligible) {
     if (listedProductIds.has(id)) continue;
@@ -317,7 +325,7 @@ export async function countCandidateProducts(
 ): Promise<CategoryCandidateStats> {
   const [listedProductIds, eligible] = await Promise.all([
     loadListedProductIds(admin, profileId),
-    loadEligibleProductIds(admin, categoryId),
+    loadEligibleProductIds(admin, categoryId, profileId),
   ]);
 
   let alreadyListed = 0;

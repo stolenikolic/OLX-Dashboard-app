@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { OlxClient } from "@/lib/olx/client";
 
 /**

@@ -10,6 +10,7 @@ import {
   slotToTime,
   slotsConflict,
   timeToSlotMinutes,
+  shouldSkipPostingDay,
   type PostScheduleFields,
 } from "@/lib/listings/post-schedule-time";
 import { getProfileIdsWithRunningPostJob } from "@/lib/workers/job-log";
@@ -133,6 +134,8 @@ export async function listDuePostProfiles(
     const next = getNextEligibleAt(row, now);
     if (!next || now.getTime() < next.getTime()) continue;
 
+    if (shouldSkipPostingDay(row.id, now)) continue;
+
     if (isPostingAttemptsExhausted(row, now)) continue;
 
     due.push({ id: row.id, name: row.name });
@@ -167,7 +170,11 @@ export async function assignPostScheduleTime(
     }
   }
 
-  const pool = freeSlots.length > 0 ? freeSlots : [...Array(SLOT_COUNT).keys()];
+  const allowCollision = Math.random() < 0.2;
+  const pool =
+    !allowCollision && freeSlots.length > 0
+      ? freeSlots
+      : [...Array(SLOT_COUNT).keys()];
   const pick = pool[Math.floor(Math.random() * pool.length)]!;
   const time = slotToTime(pick);
 

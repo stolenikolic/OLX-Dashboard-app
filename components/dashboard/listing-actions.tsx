@@ -22,33 +22,34 @@ export function ListingActions({
 }) {
   const [pending, startTransition] = useTransition();
 
-  function run(action: () => Promise<void>) {
+  function run(action: () => Promise<{ message?: string } | void>) {
     startTransition(() => {
-      action().catch((err) => {
-        alert(err instanceof Error ? err.message : "Greška");
-      });
+      action()
+        .then((res) => {
+          if (res && "message" in res && res.message) {
+            alert(res.message);
+          }
+        })
+        .catch((err) => {
+          alert(err instanceof Error ? err.message : "Greška");
+        });
     });
   }
 
   function bumpListing() {
     startTransition(async () => {
       try {
-        await refreshListingBumpAction(listingId, false);
+        const go = window.confirm(
+          "Pokrenuti obnavljanje oglasa preko GitHub Actions?",
+        );
+        if (!go) return;
+        const allowPaid = window.confirm(
+          "Ako nema besplatnog slota, dozvoli naplatu?",
+        );
+        const result = await refreshListingBumpAction(listingId, allowPaid);
+        alert(result.message);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Greška";
-        if (message.includes("besplatnih") || message.includes("naplatu")) {
-          const ok = window.confirm(
-            `${message}\n\nŽeliš li ipak obnoviti uz naplatu?`,
-          );
-          if (!ok) return;
-          try {
-            await refreshListingBumpAction(listingId, true);
-          } catch (err2) {
-            alert(err2 instanceof Error ? err2.message : "Greška");
-          }
-          return;
-        }
-        alert(message);
+        alert(err instanceof Error ? err.message : "Greška");
       }
     });
   }

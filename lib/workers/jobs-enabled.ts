@@ -24,6 +24,7 @@ export const WORKFLOW_TO_JOB: Record<WorkflowName, JobType | null> = {
   "sync-conversations": "sync_conversations",
   "refresh-listings": "refresh_listings",
   "sync-messages": "sync_messages",
+  "manual-action": "manual_action",
 };
 
 export async function assertJobEnabledForProfile(

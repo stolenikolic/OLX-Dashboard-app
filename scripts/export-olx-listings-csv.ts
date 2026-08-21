@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 

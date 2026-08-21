@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 import {
@@ -9,17 +8,13 @@ import {
 } from "@/lib/dashboard/actions";
 
 export function UnmappedToolbar({ profileId }: { profileId: string }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   function refresh() {
     startTransition(() => {
       refreshUnmappedListingsAction(profileId)
         .then((result) => {
-          router.refresh();
-          alert(
-            `Osvježeno: nemapirano=${result.unmapped} (od ${result.olxTotal} aktivnih na OLX-u).`,
-          );
+          alert(result.message);
         })
         .catch((err) => {
           alert(err instanceof Error ? err.message : "Osvježavanje nije uspjelo");

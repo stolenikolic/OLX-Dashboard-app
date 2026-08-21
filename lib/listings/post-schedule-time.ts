@@ -1,3 +1,5 @@
+import { fnv1a } from "@/lib/workers/profile-shuffle";
+
 export const POST_SCHEDULE_TZ = "Europe/Sarajevo";
 export const POST_SCHEDULE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -127,21 +129,47 @@ export function getWindowEndAt(
 }
 
 /**
- * next_eligible = max(danas_u_post_schedule_time, window_start + 24h).
+ * next_eligible = max(danas_u_post_schedule_time + jitter, window_start + 24h).
  * Ako nema schedule → null (nije due dok se ne postavi).
+ * Preskočeni dani se pomjeraju na sljedeći ne-skip dan.
  */
 export function getNextEligibleAt(
-  profile: PostScheduleFields,
+  profile: PostScheduleFields & { id?: string },
   now: Date = new Date(),
 ): Date | null {
   if (!profile.post_schedule_time) return null;
 
-  const scheduleToday = scheduleTodayAt(profile.post_schedule_time, now);
+  let day = now;
+  if (profile.id) {
+    for (let i = 0; i < 20; i++) {
+      if (!shouldSkipPostingDay(profile.id, day)) break;
+      day = new Date(day.getTime() + 86_400_000);
+    }
+  }
+
+  const scheduled = scheduleTodayAt(profile.post_schedule_time, day);
+  const jitterMs = profile.id
+    ? (fnv1a(
+        `post-jitter:${profile.id}:${sarajevoTodayDateString(day)}`,
+      ) %
+        1140) *
+      1000
+    : 0;
+  const jittered = new Date(scheduled.getTime() + jitterMs);
   const windowEnd = getWindowEndAt(profile.posting_window_started_at);
+  if (!windowEnd) return jittered;
+  return new Date(Math.max(jittered.getTime(), windowEnd.getTime()));
+}
 
-  if (!windowEnd) return scheduleToday;
+export const SKIP_POSTING_DAY_PCT = 12;
 
-  return new Date(Math.max(scheduleToday.getTime(), windowEnd.getTime()));
+/** Deterministički ~12% dana (Sarajevo kalendar). */
+export function shouldSkipPostingDay(
+  profileId: string,
+  date: Date = new Date(),
+): boolean {
+  const key = `skip-post:${profileId}:${sarajevoTodayDateString(date)}`;
+  return fnv1a(key) % 100 < SKIP_POSTING_DAY_PCT;
 }
 
 export function isPostingWindowOpen(
@@ -177,5 +205,5 @@ export function timeToSlotMinutes(value: string): number {
 }
 
 export function slotsConflict(a: number, b: number): boolean {
-  return Math.abs(a - b) < SLOT_STEP_MINUTES;
+  return a === b;
 }

@@ -29,8 +29,8 @@ export function ConnectProductDialog({
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
-      setHits([]);
-      return;
+      const clear = setTimeout(() => setHits([]), 0);
+      return () => clearTimeout(clear);
     }
 
     let cancelled = false;

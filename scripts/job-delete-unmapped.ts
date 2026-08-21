@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { runDeleteUnmappedJob, runDeleteUnmappedWorker } from "@/lib/listings/delete-unmapped";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";
 

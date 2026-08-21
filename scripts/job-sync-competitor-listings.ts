@@ -1,3 +1,5 @@
+import "./_olx-guard";
+
 import { syncCompetitorListings } from "@/lib/pricing/competitor";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";

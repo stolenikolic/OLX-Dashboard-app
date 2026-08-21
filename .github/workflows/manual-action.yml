@@ -1,0 +1,46 @@
+# =============================================================================
+# Manual Action — ručne OLX akcije iz dashboarda (hide/unhide/finish/price/bump).
+# =============================================================================
+name: manual-action
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: "Profil (uuid)"
+        required: true
+      action:
+        description: "hide|unhide|finish|refresh_price|bump|hide_unmapped|finish_unmapped|refresh_unmapped|verify_import"
+        required: true
+      listing_id:
+        description: "listings.id ili unmapped_listings.id (opcionalno)"
+        required: false
+      allow_paid:
+        description: "Bump: dozvoli naplatu ako nema besplatnog slota"
+        required: false
+        default: "false"
+
+concurrency:
+  group: manual-action-${{ github.event.inputs.profile_id }}-${{ github.event.inputs.listing_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Manual OLX action
+        env:
+          PROFILE_ID: ${{ github.event.inputs.profile_id }}
+          MANUAL_ACTION: ${{ github.event.inputs.action }}
+          LISTING_ID: ${{ github.event.inputs.listing_id }}
+          ALLOW_PAID: ${{ github.event.inputs.allow_paid }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:manual-action

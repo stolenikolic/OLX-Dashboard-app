@@ -1,10 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { buildListingPayload } from "@/lib/listings/build-payload";
+import {
+  fetchImageBuffer,
+  filenameForProfile,
+  transformForProfile,
+} from "@/lib/listings/image-transform";
 import { mapProductAttributes } from "@/lib/listings/map-attributes";
 import { calculateProductPrice } from "@/lib/pricing/context";
 import { OlxClient } from "@/lib/olx/client";
-import type { CreateListingPayload } from "@/lib/olx/types";
+import type { CreateListingPayload, OlxListingImage } from "@/lib/olx/types";
+import { appendJobLog } from "@/lib/workers/job-log";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -14,6 +20,7 @@ export type PostListingOptions = {
   productId: string;
   client: OlxClient;
   dryRun?: boolean;
+  jobRunId?: string;
 };
 
 export type PostListingResult =
@@ -33,6 +40,42 @@ export type PostListingResult =
       title: string;
     }
   | { ok: false; reason: "already_posted"; olxListingId?: number | null };
+
+async function uploadListingImageWithFallback(
+  client: OlxClient,
+  admin: Admin,
+  input: {
+    listingId: number;
+    imageUrl: string;
+    profileId: string;
+    productId: string;
+    jobRunId?: string;
+  },
+): Promise<OlxListingImage[]> {
+  try {
+    const raw = await fetchImageBuffer(input.imageUrl);
+    const transformed = await transformForProfile(raw, input.profileId);
+    const filename = filenameForProfile(input.profileId, input.productId);
+    return await client.uploadListingImageBinary(
+      input.listingId,
+      transformed,
+      filename,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `Multipart upload nije uspio, fallback na image_url: ${message}`,
+    );
+    if (input.jobRunId) {
+      await appendJobLog(admin, input.jobRunId, {
+        level: "warn",
+        message: `Multipart slika nije uspjela, fallback na image_url (#${input.listingId})`,
+        context: { error: message, listingId: input.listingId },
+      });
+    }
+    return client.uploadListingImage(input.listingId, input.imageUrl);
+  }
+}
 
 export async function loadProductForListing(admin: Admin, productId: string) {
   const { data, error } = await admin
@@ -154,6 +197,7 @@ export async function postProductListing(
       : pricing.finalPrice;
 
   const payload = buildListingPayload({
+    profileId,
     title: product.title,
     olxCategoryId: product.olxCategoryId,
     price: finalPrice,
@@ -176,10 +220,13 @@ export async function postProductListing(
   const olxListingId = created.id;
 
   try {
-    const images = await client.uploadListingImage(
-      olxListingId,
-      product.mainImageUrl,
-    );
+    const images = await uploadListingImageWithFallback(client, admin, {
+      listingId: olxListingId,
+      imageUrl: product.mainImageUrl,
+      profileId,
+      productId,
+      jobRunId: options.jobRunId,
+    });
     const main = images.find((i) => i.main) ?? images[0];
     if (main && !main.main) {
       await client.setMainImage(olxListingId, main.id);

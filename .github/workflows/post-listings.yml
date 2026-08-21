@@ -20,6 +20,10 @@ on:
         description: 'Preskoči OLX import ("true" / "false")'
         required: false
         default: ""
+      dry_run:
+        description: '"true" = dry-run'
+        required: false
+        default: "false"
 
 concurrency:
   group: post-listings
@@ -71,4 +75,9 @@ jobs:
           SKIP_IMPORT: ${{ github.event.inputs.skip_import }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npm run job:post-listings
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run job:post-listings -- --dry-run
+          else
+            npm run job:post-listings
+          fi

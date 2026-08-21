@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { loadCompetitorSellers } from "@/lib/pricing/competitor/sellers";
+import { assertOlxAllowed } from "@/lib/olx/net-guard";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -186,6 +187,7 @@ async function upsertBatch(
 export async function syncCompetitorListings(
   admin: Admin,
 ): Promise<SyncCompetitorsResult> {
+  assertOlxAllowed("sync-competitor-listings");
   const sellers = await loadCompetitorSellers(admin);
   const result: SyncCompetitorsResult = {
     sellers: sellers.length,

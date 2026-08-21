@@ -5,8 +5,6 @@
 name: refresh-prices
 
 on:
-  schedule:
-    - cron: "30 3 * * *"
   workflow_dispatch:
     inputs:
       profile_id:
@@ -16,9 +14,13 @@ on:
         description: "Ignoriši interval (osvježi sve odmah)"
         required: false
         default: "false"
+      dry_run:
+        description: '"true" = dry-run'
+        required: false
+        default: "false"
 
 concurrency:
-  group: refresh-prices
+  group: refresh-prices-${{ github.event.inputs.profile_id || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -85,4 +87,9 @@ jobs:
           PROFILE_ID: ${{ matrix.profile.id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npm run job:refresh-prices
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run job:refresh-prices -- --dry-run
+          else
+            npm run job:refresh-prices
+          fi
