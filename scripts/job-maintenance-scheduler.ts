@@ -2,7 +2,7 @@ import "./_olx-guard";
 
 import { dispatchGitHubWorkflow } from "@/lib/github/dispatch";
 import { createJobAdminClient } from "@/lib/supabase/job-admin";
-import { isJobRunningForProfile } from "@/lib/workers/job-log";
+import { isJobRunningForProfile, reapStaleJobRuns } from "@/lib/workers/job-log";
 import {
   SCHEDULE_JOBS,
   SCHEDULE_TO_WORKFLOW,
@@ -15,6 +15,11 @@ async function main() {
   const admin = createJobAdminClient();
   const now = new Date();
   const dispatched: Array<{ profileId: string; job: ScheduleJob }> = [];
+
+  const reaped = await reapStaleJobRuns(admin);
+  if (reaped > 0) {
+    console.log(`Zatvoreno ${reaped} zaglavljenih job_runs.`);
+  }
 
   for (const job of SCHEDULE_JOBS) {
     const profiles = await listActiveProfiles(admin, { job });

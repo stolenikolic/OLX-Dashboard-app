@@ -87,6 +87,10 @@ jobs:
           PROFILE_ID: ${{ matrix.profile.id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Katalog je veći od jednog runa; batch + budžet drže run pod timeoutom
+          # od 90 min, a ostatak se nastavlja u sljedećem runu.
+          REFRESH_PRICES_BATCH_SIZE: ${{ secrets.REFRESH_PRICES_BATCH_SIZE || '3000' }}
+          REFRESH_PRICES_TIME_BUDGET_MS: ${{ secrets.REFRESH_PRICES_TIME_BUDGET_MS || '3300000' }}
         run: |
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             npm run job:refresh-prices -- --dry-run

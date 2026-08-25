@@ -4,28 +4,27 @@ import { fnv1a } from "@/lib/workers/profile-shuffle";
 
 const TARGET_WIDTHS = [1180, 1240, 1320] as const;
 
-function asymmetricCrop(
+/** 1 ili 2 piksela po ivici — dovoljno za hash, ne siječe kadar. */
+function pixelCrop(
   h: number,
   width: number,
   height: number,
 ): { left: number; top: number; width: number; height: number } {
-  if (width < 80 || height < 80) {
+  if (width < 8 || height < 8) {
     return { left: 0, top: 0, width, height };
   }
 
-  const totalX = 0.03 + (h % 3) * 0.01;
-  const leftFrac = 0.2 + ((h >>> 4) % 7) * 0.08;
-  const left = Math.round(width * totalX * leftFrac);
-  const right = Math.round(width * totalX * (1 - leftFrac));
+  const left = 1 + (h % 2);
+  const top = 1 + ((h >>> 2) % 2);
+  const right = 1 + ((h >>> 4) % 2);
+  const bottom = 1 + ((h >>> 6) % 2);
 
-  const totalY = 0.03 + ((h >>> 8) % 3) * 0.01;
-  const topFrac = 0.2 + ((h >>> 12) % 7) * 0.08;
-  const top = Math.round(height * totalY * topFrac);
-  const bottom = Math.round(height * totalY * (1 - topFrac));
-
-  const extractWidth = Math.max(1, width - left - right);
-  const extractHeight = Math.max(1, height - top - bottom);
-  return { left, top, width: extractWidth, height: extractHeight };
+  return {
+    left,
+    top,
+    width: width - left - right,
+    height: height - top - bottom,
+  };
 }
 
 /** Minimalna per-profil transformacija — mijenja i MD5 i pHash. */
@@ -34,14 +33,16 @@ export async function transformForProfile(
   profileId: string,
 ): Promise<Buffer> {
   const h = fnv1a(`img:${profileId}`);
-  const meta = await sharp(input).metadata();
+  // EXIF prvo, pa mjerenje — inače extract ide na krive dimenzije.
+  const oriented = await sharp(input).rotate().toBuffer();
+  const meta = await sharp(oriented).metadata();
   const width = meta.width ?? 0;
   const height = meta.height ?? 0;
-  const crop = asymmetricCrop(h, width, height);
+  const crop = pixelCrop(h, width, height);
   const targetWidth = TARGET_WIDTHS[h % TARGET_WIDTHS.length]!;
   const quality = 82 + (h % 10);
 
-  return sharp(input)
+  return sharp(oriented)
     .extract(crop)
     .resize({ width: targetWidth, withoutEnlargement: true })
     .jpeg({ quality })

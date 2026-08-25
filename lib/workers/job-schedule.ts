@@ -116,6 +116,7 @@ export async function scheduleNextRun(
   },
   job: ScheduleJob,
   now: Date = new Date(),
+  options?: { overrideIntervalDays?: number },
 ): Promise<string> {
   const { data, error } = await admin
     .from("profiles")
@@ -133,7 +134,12 @@ export async function scheduleNextRun(
       ? Number(data?.price_refresh_days ?? profile.price_refresh_days ?? 7)
       : (current[job]?.interval_days ?? DEFAULT_INTERVAL[job]);
 
-  const next = computeNextRunAt({ job, intervalDays, now });
+  // Override pomjera samo ovaj termin; konfigurisani interval ostaje netaknut.
+  const next = computeNextRunAt({
+    job,
+    intervalDays: options?.overrideIntervalDays ?? intervalDays,
+    now,
+  });
   const nextIso = next.toISOString();
 
   current[job] = {

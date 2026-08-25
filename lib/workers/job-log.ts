@@ -7,6 +7,17 @@ type JobType = Database["public"]["Enums"]["job_type"];
 type JobStatus = Database["public"]["Enums"]["job_status"];
 type LogLevel = "info" | "warn" | "error";
 
+/**
+ * GHA ubije proces na timeout/cancel bez da finishJobRun stigne da se izvrši,
+ * pa red ostane "running" zauvijek i trajno zaključa profil. Sve iznad ovog
+ * praga se tretira kao mrtvo — duže od najdužeg workflow timeouta (120 min).
+ */
+export const STALE_JOB_RUN_MS = 3 * 60 * 60 * 1000;
+
+function staleRunCutoff(now: Date = new Date()): string {
+  return new Date(now.getTime() - STALE_JOB_RUN_MS).toISOString();
+}
+
 export async function startJobRun(
   admin: Admin,
   input: { job: JobType; profileId?: string },
@@ -110,6 +121,7 @@ export async function isJobRunningForProfile(
     .eq("profile_id", profileId)
     .eq("job", job)
     .eq("status", "running")
+    .gte("started_at", staleRunCutoff())
     .limit(1)
     .maybeSingle();
 
@@ -127,6 +139,7 @@ export async function getProfileIdsWithRunningPostJob(
     .select("profile_id")
     .eq("job", "post_listings")
     .eq("status", "running")
+    .gte("started_at", staleRunCutoff())
     .not("profile_id", "is", null);
 
   if (error) {
@@ -140,6 +153,31 @@ export async function getProfileIdsWithRunningPostJob(
       .map((row) => row.profile_id)
       .filter((id): id is string => id != null),
   );
+}
+
+/**
+ * Zatvara redove koje je ubijen proces ostavio u "running". Bez ovoga jedan
+ * timeout trajno blokira profil, jer running provjere nemaju drugi izlaz.
+ */
+export async function reapStaleJobRuns(admin: Admin): Promise<number> {
+  const { data, error } = await admin
+    .from("job_runs")
+    .update({
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      summary: "Prekinut bez završetka (timeout/cancel); zatvoreno automatski.",
+    })
+    .eq("status", "running")
+    .lt("started_at", staleRunCutoff())
+    .select("id");
+
+  if (error) {
+    throw new Error(
+      `Zatvaranje zaglavljenih job_runs nije uspjelo: ${error.message}`,
+    );
+  }
+
+  return data?.length ?? 0;
 }
 
 export async function appendJobLog(

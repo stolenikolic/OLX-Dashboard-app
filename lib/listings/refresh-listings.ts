@@ -34,6 +34,13 @@ import type { Database, Json } from "@/types/database";
 type Admin = SupabaseClient<Database>;
 
 const PAGE_SIZE = 1000;
+
+/**
+ * getRefreshLimits validira token prije petlje, pa izolovan 401 na jednom oglasu
+ * znači da taj oglas nije obnovljiv (izbrisan/istekao/prebačen), a ne da je nalog
+ * pao. Suspenzija cijelog profila se pokreće samo kad 401 dolazi u nizu.
+ */
+const AUTH_FAILURE_ABORT_THRESHOLD = 3;
 /** OLX free manual refresh cooldown (shop packages). */
 const REFRESH_COOLDOWN_DAYS = 7;
 
@@ -462,6 +469,7 @@ export async function runRefreshListingsWorker(
   }
 
   let usedThisRun = 0;
+  let consecutiveAuthFailures = 0;
   for (const s of scored) {
     if (usedThisRun >= dailyCap) break;
     if (limits.free_count + usedThisRun >= limits.free_limit) {
@@ -473,6 +481,7 @@ export async function runRefreshListingsWorker(
       await client.refreshListing(s.olxListingId);
       usedThisRun++;
       result.refreshed++;
+      consecutiveAuthFailures = 0;
 
       const nowIso = new Date().toISOString();
       await admin.from("refresh_events").insert({
@@ -507,16 +516,28 @@ export async function runRefreshListingsWorker(
         await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
       }
     } catch (err) {
-      if (isAuthFailure(err)) {
-        await handleOlxAuthFailure(admin, profile.id, profile.name, err);
-        throw err;
+      const authFailure = isAuthFailure(err);
+      if (authFailure) {
+        consecutiveAuthFailures++;
+        if (consecutiveAuthFailures >= AUTH_FAILURE_ABORT_THRESHOLD) {
+          await handleOlxAuthFailure(admin, profile.id, profile.name, err);
+          throw err;
+        }
+      } else {
+        consecutiveAuthFailures = 0;
       }
+
       const message = err instanceof Error ? err.message : String(err);
       result.failed++;
       result.errors.push(`#${s.olxListingId}: ${message}`);
       console.error(`Greška refresh #${s.olxListingId}: ${message}`);
 
-      if (/refresh|obnov|cooldown|limit/i.test(message) && s.listingId) {
+      // Bez ovoga oglas koji OLX odbija ostaje na vrhu score liste i ruši
+      // isti job svaki dan.
+      if (
+        (authFailure || /refresh|obnov|cooldown|limit/i.test(message)) &&
+        s.listingId
+      ) {
         await admin
           .from("listings")
           .update({

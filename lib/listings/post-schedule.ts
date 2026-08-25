@@ -129,14 +129,35 @@ export async function listDuePostProfiles(
 
   const due: Array<{ id: string; name: string }> = [];
   for (const row of data ?? []) {
-    if (runningIds.has(row.id)) continue;
+    if (runningIds.has(row.id)) {
+      console.log(`Preskačem "${row.name}": post_listings već running.`);
+      continue;
+    }
 
     const next = getNextEligibleAt(row, now);
-    if (!next || now.getTime() < next.getTime()) continue;
+    if (!next) {
+      console.log(`Preskačem "${row.name}": post_schedule_time nije postavljen.`);
+      continue;
+    }
+    if (now.getTime() < next.getTime()) {
+      console.log(
+        `Preskačem "${row.name}": nije vrijeme, sljedeći termin ${next.toISOString()}.`,
+      );
+      continue;
+    }
 
-    if (shouldSkipPostingDay(row.id, now)) continue;
+    if (shouldSkipPostingDay(row.id, now)) {
+      console.log(`Preskačem "${row.name}": današnji dan je namjerno preskočen.`);
+      continue;
+    }
 
-    if (isPostingAttemptsExhausted(row, now)) continue;
+    if (isPostingAttemptsExhausted(row, now)) {
+      console.log(
+        `Preskačem "${row.name}": potrošeni pokušaji za danas ` +
+          `(${row.posting_attempt_count}).`,
+      );
+      continue;
+    }
 
     due.push({ id: row.id, name: row.name });
   }
