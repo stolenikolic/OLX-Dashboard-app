@@ -73,7 +73,7 @@ select c.id, m.spec_key, m.olx_attribute_id, m.required, m.fallback_value
 from categories c
 cross join (values
   ('megapixel',                   527,  true, 'Ostalo'),
-  ('__default_tip_fotoaparata',   2401, true, 'Ostalo'),
+  ('__default_tip_fotoaparata',   2401, true, 'Ostali'),
   ('__derived_camera_resolution', 3431, true, '1080p (Full HD)')
 ) as m(spec_key, olx_attribute_id, required, fallback_value)
 where c.internal_slug = 'digitalni-fotoaparati'
