@@ -14,6 +14,7 @@ import {
   ensureOlxUserId,
   loadProfileForWorker,
 } from "@/lib/workers/profile";
+import { getPacing } from "@/lib/workers/job-pacing";
 import { scheduleNextRun } from "@/lib/workers/job-schedule";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
 import { runSyncConversationsWorker } from "@/lib/messages/sync-conversations";
@@ -22,8 +23,6 @@ import type { Database, Json } from "@/types/database";
 type Admin = SupabaseClient<Database>;
 
 const PAGE_SIZE = 15;
-const DELAY_MIN_MS = 250;
-const DELAY_MAX_MS = 700;
 const DEFAULT_MAX_PAGES_PER_CONV = 1;
 
 export type SyncMessagesOptions = {
@@ -147,6 +146,7 @@ export async function runSyncMessagesWorker(
   };
 
   const olx = options.client ?? (await createClientForProfile(admin, profile));
+  const pacing = getPacing(profile, "sync_messages");
 
   if (!options.skipConversationSync) {
     const convStats = await runSyncConversationsWorker(admin, {
@@ -216,7 +216,7 @@ export async function runSyncMessagesWorker(
         }
 
         if (pageData.length < PAGE_SIZE) break;
-        await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
+        await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
       }
 
       if (!dryRun && rows.length > 0) {
@@ -251,7 +251,7 @@ export async function runSyncMessagesWorker(
       if (isAuthFailure(err)) throw err;
     }
 
-    await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
+    await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
   }
 
   return result;

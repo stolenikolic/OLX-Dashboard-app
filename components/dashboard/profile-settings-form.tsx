@@ -64,6 +64,10 @@ function readPacing(fd: FormData): JobPacing | undefined {
     refresh_prices: { min_ms: 200, max_ms: 500 },
     sync_stock: { min_ms: 200, max_ms: 500 },
     refresh_listings: { min_ms: 200, max_ms: 500 },
+    sync_conversations: { min_ms: 300, max_ms: 800 },
+    sync_messages: { min_ms: 250, max_ms: 700 },
+    delete_unmapped: { min_ms: 800, max_ms: 2200 },
+    import_listings: { min_ms: 150, max_ms: 400 },
   };
   let any = false;
   for (const job of PACING_JOBS) {

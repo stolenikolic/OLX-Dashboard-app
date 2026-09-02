@@ -1,0 +1,26 @@
+# =============================================================================
+# Probe — provjerava da li autentifikovani /users/:username/listings prihvata
+# price_from/price_to i selected_category (za particionisanje preko ~10k
+# oglasa). Read-only, ne mijenja bazu. Rezultat se čita iz workflow log-a.
+# =============================================================================
+name: probe-olx-user-listings
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Probe OLX authed user listings endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run job:probe-olx-user-listings

@@ -14,6 +14,7 @@ import {
   loadProfileForWorker,
 } from "@/lib/workers/profile";
 import { persistOlxShopProfile } from "@/lib/olx/shop-profile-cache";
+import { getPacing } from "@/lib/workers/job-pacing";
 import { scheduleNextRun } from "@/lib/workers/job-schedule";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
 import type { Database, Json } from "@/types/database";
@@ -21,8 +22,6 @@ import type { Database, Json } from "@/types/database";
 type Admin = SupabaseClient<Database>;
 
 const PAGE_SIZE = 15;
-const DELAY_MIN_MS = 300;
-const DELAY_MAX_MS = 800;
 const DEFAULT_BACKFILL_MONTHS = 12;
 
 export type SyncConversationsOptions = {
@@ -131,6 +130,7 @@ export async function runSyncConversationsWorker(
   };
 
   const olx = options.client ?? (await createClientForProfile(admin, profile));
+  const pacing = getPacing(profile, "sync_conversations");
 
   const cutoff =
     backfillMonths != null
@@ -224,7 +224,7 @@ export async function runSyncConversationsWorker(
       stop = true;
     } else {
       page++;
-      await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
+      await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
     }
   }
 

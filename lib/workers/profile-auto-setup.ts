@@ -8,6 +8,7 @@ import {
   timeToSlotMinutes,
 } from "@/lib/listings/post-schedule-time";
 import { DEFAULT_REFRESH_SCORE_CONFIG } from "@/lib/listings/refresh-score";
+import { ensureProfileIdentity } from "@/lib/profile/identity";
 import {
   generateVarianceForNewProfile,
   type VarianceRange,
@@ -49,6 +50,44 @@ function jitterWeight(base: number): number {
   return Number((base * (0.85 + Math.random() * 0.3)).toFixed(4));
 }
 
+/**
+ * Jitterovane težine bump-scoringa oko globalnog app_settings baznog seta.
+ * Dijeli je autoConfigureNewProfile (novi profil) i backfillAntiCorrelation
+ * (postojeći profil sa refresh_overrides = NULL).
+ */
+async function buildRefreshOverrides(admin: Admin): Promise<Record<string, number>> {
+  const { data: settings } = await admin
+    .from("app_settings")
+    .select(
+      "refresh_w_inquiry, refresh_w_category, refresh_w_value, refresh_w_staleness, refresh_unmapped_penalty",
+    )
+    .eq("id", 1)
+    .maybeSingle();
+
+  return {
+    wInquiry: jitterWeight(
+      Number(settings?.refresh_w_inquiry ?? DEFAULT_REFRESH_SCORE_CONFIG.wInquiry),
+    ),
+    wCategory: jitterWeight(
+      Number(settings?.refresh_w_category ?? DEFAULT_REFRESH_SCORE_CONFIG.wCategory),
+    ),
+    wValue: jitterWeight(
+      Number(settings?.refresh_w_value ?? DEFAULT_REFRESH_SCORE_CONFIG.wValue),
+    ),
+    wStaleness: jitterWeight(
+      Number(
+        settings?.refresh_w_staleness ?? DEFAULT_REFRESH_SCORE_CONFIG.wStaleness,
+      ),
+    ),
+    unmappedPenalty: jitterWeight(
+      Number(
+        settings?.refresh_unmapped_penalty ??
+          DEFAULT_REFRESH_SCORE_CONFIG.unmappedPenalty,
+      ),
+    ),
+  };
+}
+
 export async function autoConfigureNewProfile(
   admin: Admin,
   profileId: string,
@@ -88,37 +127,7 @@ export async function autoConfigureNewProfile(
   const jobSchedule = generateScheduleForNewProfile();
   const priceRefreshDays = pickPriceRefreshDays(usedDays);
   const variance = generateVarianceForNewProfile(existingVariance);
-
-  const { data: settings } = await admin
-    .from("app_settings")
-    .select(
-      "refresh_w_inquiry, refresh_w_category, refresh_w_value, refresh_w_staleness, refresh_unmapped_penalty",
-    )
-    .eq("id", 1)
-    .maybeSingle();
-
-  const refreshOverrides = {
-    wInquiry: jitterWeight(
-      Number(settings?.refresh_w_inquiry ?? DEFAULT_REFRESH_SCORE_CONFIG.wInquiry),
-    ),
-    wCategory: jitterWeight(
-      Number(settings?.refresh_w_category ?? DEFAULT_REFRESH_SCORE_CONFIG.wCategory),
-    ),
-    wValue: jitterWeight(
-      Number(settings?.refresh_w_value ?? DEFAULT_REFRESH_SCORE_CONFIG.wValue),
-    ),
-    wStaleness: jitterWeight(
-      Number(
-        settings?.refresh_w_staleness ?? DEFAULT_REFRESH_SCORE_CONFIG.wStaleness,
-      ),
-    ),
-    unmappedPenalty: jitterWeight(
-      Number(
-        settings?.refresh_unmapped_penalty ??
-          DEFAULT_REFRESH_SCORE_CONFIG.unmappedPenalty,
-      ),
-    ),
-  };
+  const refreshOverrides = await buildRefreshOverrides(admin);
 
   const { error: updateError } = await admin
     .from("profiles")
@@ -177,7 +186,7 @@ export async function backfillAntiCorrelation(admin: Admin): Promise<{
   const { data: profiles, error } = await admin
     .from("profiles")
     .select(
-      "id, post_schedule_time, job_pacing, job_schedule, price_refresh_days, price_variance_low_pct, price_variance_high_pct",
+      "id, name, post_schedule_time, job_pacing, job_schedule, price_refresh_days, price_variance_low_pct, price_variance_high_pct, refresh_overrides, device_name, user_agent",
     )
     .order("created_at", { ascending: true });
 
@@ -223,6 +232,28 @@ export async function backfillAntiCorrelation(admin: Admin): Promise<{
         low: Number(profile.price_variance_low_pct),
         high: Number(profile.price_variance_high_pct),
       });
+    }
+
+    if (!profile.refresh_overrides) {
+      patch.refresh_overrides = (await buildRefreshOverrides(
+        admin,
+      )) as unknown as Json;
+      dirty = true;
+    }
+
+    const identity = ensureProfileIdentity(
+      profile.id,
+      profile.name,
+      profile.device_name,
+      profile.user_agent,
+    );
+    if (
+      identity.device_name !== profile.device_name ||
+      identity.user_agent !== profile.user_agent
+    ) {
+      patch.device_name = identity.device_name;
+      patch.user_agent = identity.user_agent;
+      dirty = true;
     }
 
     if (dirty) {

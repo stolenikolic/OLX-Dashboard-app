@@ -1,4 +1,5 @@
 import { assertOlxAllowed } from "@/lib/olx/net-guard";
+import type { BrowserIdentity } from "@/lib/profile/browser-identity";
 import { fnv1a } from "@/lib/workers/profile-shuffle";
 import type {
   CreateListingPayload,
@@ -24,6 +25,8 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.olx.ba";
 const DEFAULT_DEVICE_NAME = "api_integration";
+/** Web (non-api) OLX host — chat/conversations endpointi žive ovdje. */
+const WEB_BASE_URL = "https://olx.ba";
 
 export class OlxApiError extends Error {
   status: number;
@@ -75,9 +78,12 @@ export type OlxClientConfig = {
   /** Legacy auth via OLX-CLIENT-ID / OLX-CLIENT-TOKEN headers. */
   clientId?: string | null;
   clientToken?: string | null;
-  /** Anti-detection: per-profile device name and User-Agent. */
+  /** Anti-detection: per-profile device name (OLX login param). */
   deviceName?: string;
+  /** @deprecated Koristi `identity` — ostaje radi kompatibilnosti sa skriptama koje ne prosljeđuju puni identitet. */
   userAgent?: string | null;
+  /** Anti-detection: koherentan set browser headera (UA, Client Hints, jezik) po profilu. */
+  identity?: BrowserIdentity | null;
   /** Optional per-profile proxy (e.g. http://user:pass@host:port). */
   proxyUrl?: string | null;
   /** Seed for per-profile retry backoff (typically profile.id). */
@@ -93,6 +99,10 @@ export class OlxClient {
   private clientToken: string | null;
   private deviceName: string;
   private userAgent: string | null;
+  private acceptLanguage: string | null;
+  private secChUa: string | null;
+  private secChUaMobile: string | null;
+  private secChUaPlatform: string | null;
   private proxyUrl: string | null;
   private dispatcher: unknown;
   private retryBaseMs: number;
@@ -105,7 +115,11 @@ export class OlxClient {
     this.clientId = config.clientId ?? null;
     this.clientToken = config.clientToken ?? null;
     this.deviceName = config.deviceName ?? DEFAULT_DEVICE_NAME;
-    this.userAgent = config.userAgent ?? null;
+    this.userAgent = config.identity?.userAgent ?? config.userAgent ?? null;
+    this.acceptLanguage = config.identity?.acceptLanguage ?? null;
+    this.secChUa = config.identity?.secChUa ?? null;
+    this.secChUaMobile = config.identity?.secChUaMobile ?? null;
+    this.secChUaPlatform = config.identity?.secChUaPlatform ?? null;
     this.proxyUrl = config.proxyUrl ?? null;
     const seed = config.retrySeed ?? "default";
     this.retryBaseMs = 1400 + (fnv1a(`retry-base:${seed}`) % 1400);
@@ -128,8 +142,32 @@ export class OlxClient {
     }
     if (this.userAgent) {
       headers["User-Agent"] = this.userAgent;
+      // Fetch/undici dekompresuje automatski bez obzira na ovaj header —
+      // šaljemo ga samo da se poklopi sa stvarnim browser potpisom.
+      headers["Accept-Encoding"] = "gzip, deflate, br";
+    }
+    if (this.acceptLanguage) {
+      headers["Accept-Language"] = this.acceptLanguage;
+    }
+    if (this.secChUa) {
+      headers["sec-ch-ua"] = this.secChUa;
+    }
+    if (this.secChUaMobile) {
+      headers["sec-ch-ua-mobile"] = this.secChUaMobile;
+    }
+    if (this.secChUaPlatform) {
+      headers["sec-ch-ua-platform"] = this.secChUaPlatform;
     }
     return headers;
+  }
+
+  /** baseHeaders() + Origin/Referer — za olx.ba web endpointe (chat/conversations). */
+  protected webHeaders(): Record<string, string> {
+    return {
+      ...this.baseHeaders(),
+      Origin: WEB_BASE_URL,
+      Referer: `${WEB_BASE_URL}/`,
+    };
   }
 
   protected async getDispatcher(): Promise<unknown> {
@@ -172,10 +210,14 @@ export class OlxClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
     const dispatcher = await this.getDispatcher();
+    const isWebEndpoint = url.startsWith(WEB_BASE_URL);
 
     const requestInit: RequestInitWithDispatcher = {
       ...init,
-      headers: { ...this.baseHeaders(), ...(init.headers ?? {}) },
+      headers: {
+        ...(isWebEndpoint ? this.webHeaders() : this.baseHeaders()),
+        ...(init.headers ?? {}),
+      },
     };
     if (dispatcher) {
       requestInit.dispatcher = dispatcher;
@@ -406,26 +448,6 @@ export class OlxClient {
     return res.data;
   }
 
-  async getUserListings(
-    username: string,
-    page = 1,
-    selectedCategoryId?: number,
-    perPage = 1000,
-    sortOrder: "asc" | "desc" = "desc",
-  ): Promise<OlxPaginatedResponse<OlxUserListing>> {
-    const params = new URLSearchParams({
-      page: String(page),
-      per_page: String(perPage),
-      sort_order: sortOrder,
-    });
-    if (selectedCategoryId != null) {
-      params.set("selected_category", String(selectedCategoryId));
-    }
-    return this.request<OlxPaginatedResponse<OlxUserListing>>(
-      `/users/${encodeURIComponent(username)}/listings?${params}`,
-    );
-  }
-
   async getListingLimits(): Promise<OlxListingLimits> {
     const res = await this.request<{ data: OlxListingLimits }>(
       "/listing-limits",
@@ -458,12 +480,26 @@ export class OlxClient {
     page = 1,
     perPage = 1000,
     sortOrder: "asc" | "desc" = "desc",
+    filter?: {
+      priceFrom?: number;
+      priceTo?: number;
+      selectedCategoryId?: number;
+    },
   ): Promise<OlxPaginatedResponse<OlxUserListing>> {
     const params = new URLSearchParams({
       page: String(page),
       per_page: String(perPage),
       sort_order: sortOrder,
     });
+    if (filter?.priceFrom != null) {
+      params.set("price_from", String(filter.priceFrom));
+    }
+    if (filter?.priceTo != null) {
+      params.set("price_to", String(filter.priceTo));
+    }
+    if (filter?.selectedCategoryId != null) {
+      params.set("selected_category", String(filter.selectedCategoryId));
+    }
     return this.request<OlxPaginatedResponse<OlxUserListing>>(
       `/users/${encodeURIComponent(username)}/listings?${params}`,
     );
@@ -534,7 +570,7 @@ export class OlxClient {
     fd.append("conversation_id", String(input.conversationId));
     fd.append("receiver_id", String(input.receiverId));
 
-    const headers = this.baseHeaders();
+    const headers = this.webHeaders();
     // Do NOT set Content-Type — FormData boundary must be automatic.
 
     const requestInit: RequestInitWithDispatcher = {

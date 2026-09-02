@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { fetchAllUserListings } from "@/lib/listings/fetch-user-listings";
 import type { OlxClient } from "@/lib/olx/client";
+import { loadPacingForProfile } from "@/lib/workers/job-pacing";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -66,7 +67,8 @@ export async function syncUnmappedListings(
   const mappedOlxIds = await fetchAllMappedOlxIds(admin, profileId);
   console.log(`Mapiranih olx_listing_id u bazi: ${mappedOlxIds.size}`);
 
-  const olxListings = await fetchAllUserListings(client, username);
+  const pacing = await loadPacingForProfile(admin, profileId, "import_listings");
+  const olxListings = await fetchAllUserListings(client, username, profileId, pacing);
   const olxTotal = olxListings.size;
 
   const unmappedRows: Array<{

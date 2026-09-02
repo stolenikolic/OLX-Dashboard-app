@@ -7,6 +7,7 @@ import {
   type TitleMatchProduct,
 } from "@/lib/listings/match-title";
 import type { OlxClient } from "@/lib/olx/client";
+import { loadPacingForProfile } from "@/lib/workers/job-pacing";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -27,7 +28,6 @@ async function getMappedOlxCategoryIds(admin: Admin): Promise<number[]> {
 }
 
 export type ImportFromOlxResult = {
-  pages: number;
   olxTotal: number;
   matched: number;
   inserted: number;
@@ -137,7 +137,6 @@ export async function importListingsFromOlx(
   if (mappedCategories.length === 0) {
     console.log("Nema mapiranih OLX kategorija — import preskočen.");
     return {
-      pages: 0,
       olxTotal: 0,
       matched: 0,
       inserted: 0,
@@ -174,9 +173,9 @@ export async function importListingsFromOlx(
     `Proizvoda bez zapisa u listings: ${pendingProductIds.size} (mapirane kategorije)`,
   );
 
-  const olxListings = await fetchAllUserListings(client, username);
+  const pacing = await loadPacingForProfile(admin, profileId, "import_listings");
+  const olxListings = await fetchAllUserListings(client, username, profileId, pacing);
   const olxTotal = olxListings.size;
-  const pages = Math.ceil(olxTotal / 1000);
 
   for (const olx of olxListings.values()) {
     if (byOlxId.has(olx.id)) {
@@ -238,7 +237,6 @@ export async function importListingsFromOlx(
   );
 
   return {
-    pages,
     olxTotal,
     matched,
     inserted,

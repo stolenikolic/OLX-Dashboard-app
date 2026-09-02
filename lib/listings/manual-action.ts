@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { bumpListingManual } from "@/lib/listings/refresh-listings";
 import { fetchAllUserListingPrices } from "@/lib/listings/fetch-user-listings";
 import { syncUnmappedListings } from "@/lib/listings/sync-unmapped";
+import { getPacing } from "@/lib/workers/job-pacing";
 import {
   createClientForProfile,
   loadProfileForWorker,
@@ -174,7 +175,8 @@ async function verifyImport(admin: Admin, profileId: string) {
     throw new Error("Profil nema OLX username.");
   }
   const client = await createClientForProfile(admin, profile);
-  const olxPrices = await fetchAllUserListingPrices(client, username);
+  const pacing = getPacing(profile, "import_listings");
+  const olxPrices = await fetchAllUserListingPrices(client, username, profileId, pacing);
 
   const { data: listings, error } = await admin
     .from("listings")

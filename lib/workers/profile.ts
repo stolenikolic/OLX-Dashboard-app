@@ -1,10 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ensureProfileIdentity } from "@/lib/profile/identity";
 import { OlxClient, createLoggedInClient } from "@/lib/olx/client";
 import { assertOlxAllowed } from "@/lib/olx/net-guard";
 import { notifyAdmin } from "@/lib/notify/email";
 import { maybeResumeProfile } from "@/lib/olx/suspension";
+import {
+  generateBrowserIdentity,
+  type BrowserIdentity,
+} from "@/lib/profile/browser-identity";
+import { ensureProfileIdentity } from "@/lib/profile/identity";
 import {
   isJobEnabledForProfile,
   JobDisabledError,
@@ -198,15 +202,16 @@ export async function ensureOlxUserId(
 
 function buildClientConfig(
   profile: ProfileForWorker,
-  identity: { device_name: string; user_agent: string },
+  deviceName: string,
+  browserIdentity: BrowserIdentity,
   token?: string | null,
 ): ConstructorParameters<typeof OlxClient>[0] {
   return {
     token: token ?? undefined,
     clientId: profile.olx_client_id,
     clientToken: profile.olx_client_token_enc,
-    deviceName: identity.device_name,
-    userAgent: identity.user_agent,
+    deviceName,
+    identity: browserIdentity,
     proxyUrl: profile.proxy_url,
     retrySeed: profile.id,
   };
@@ -224,6 +229,9 @@ export async function createClientForProfile(
     profile.user_agent,
   );
   await persistProfileIdentity(admin, profile, identity);
+  // Client Hints (sec-ch-ua, jezik) se ne perzistiraju u bazi — deterministički
+  // se izvode iz profile.id, pa su uvijek dosljedni sa perzistiranim user_agent.
+  const browserIdentity = generateBrowserIdentity(profile.id);
 
   if (profile.auth_method === "client_token") {
     if (!profile.olx_client_id || !profile.olx_client_token_enc) {
@@ -231,7 +239,9 @@ export async function createClientForProfile(
         `Profil "${profile.name}" koristi client_token auth ali nema olx_client_id / olx_client_token_enc.`,
       );
     }
-    return new OlxClient(buildClientConfig(profile, identity));
+    return new OlxClient(
+      buildClientConfig(profile, identity.device_name, browserIdentity),
+    );
   }
 
   const username =
@@ -248,7 +258,12 @@ export async function createClientForProfile(
   // Koristi keširani token dok OLX ga ne odbije — /me samo svakih 12–48h po profilu.
   if (profile.olx_bearer_token) {
     const cached = new OlxClient(
-      buildClientConfig(profile, identity, profile.olx_bearer_token),
+      buildClientConfig(
+        profile,
+        identity.device_name,
+        browserIdentity,
+        profile.olx_bearer_token,
+      ),
     );
     if (tokenCheckIsFresh(profile.olx_token_checked_at, profile.id)) {
       return cached;
@@ -284,7 +299,7 @@ export async function createClientForProfile(
 
   const client = await createLoggedInClient(username, password, {
     deviceName: identity.device_name,
-    userAgent: identity.user_agent,
+    identity: browserIdentity,
     proxyUrl: profile.proxy_url,
     retrySeed: profile.id,
   });

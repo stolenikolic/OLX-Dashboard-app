@@ -8,6 +8,7 @@ import {
   loadProfileForWorker,
 } from "@/lib/workers/profile";
 import { appendJobLog, finishJobRun, startJobRun } from "@/lib/workers/job-log";
+import { getPacing } from "@/lib/workers/job-pacing";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -71,8 +72,9 @@ export async function runDeleteUnmappedWorker(
     errors: [],
   };
 
-  const delayMin = options.delayMinMs ?? 800;
-  const delayMax = options.delayMaxMs ?? 2200;
+  const defaultPacing = getPacing(profile, "delete_unmapped");
+  const delayMin = options.delayMinMs ?? defaultPacing.minMs;
+  const delayMax = options.delayMaxMs ?? defaultPacing.maxMs;
 
   if (options.jobRunId) {
     await appendJobLog(admin, options.jobRunId, {

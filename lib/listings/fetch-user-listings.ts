@@ -3,18 +3,21 @@ import { fetchAllUserListingsViaSearch } from "@/lib/olx/search-user-listings";
 import type { OlxUserListing } from "@/lib/olx/types";
 
 /**
- * Povlači sve aktivne oglase preko javnog search API-ja
- * (sort desc+asc — /users/.../listings ne poštuje sort_order iznad 10k).
+ * Povlači sve aktivne oglase preko javnog search API-ja, particionisano
+ * preko cjenovnih pragova po profilu (probija plafon od ~20k koji je stari
+ * desc+asc pristup imao — vidi lib/olx/search-user-listings.ts).
  */
 export async function fetchAllUserListings(
   client: OlxClient,
   username: string,
+  profileId: string,
+  pacing: { minMs: number; maxMs: number },
 ): Promise<Map<number, OlxUserListing>> {
   const user = await client.getUser(username);
   const userId = user.id;
   console.log(`OLX user ${username} → user_id=${userId}`);
 
-  const searchMap = await fetchAllUserListingsViaSearch(userId);
+  const searchMap = await fetchAllUserListingsViaSearch(userId, profileId, pacing);
   const byId = new Map<number, OlxUserListing>();
 
   for (const ad of searchMap.values()) {
@@ -35,8 +38,10 @@ export async function fetchAllUserListings(
 export async function fetchAllUserListingPrices(
   client: OlxClient,
   username: string,
+  profileId: string,
+  pacing: { minMs: number; maxMs: number },
 ): Promise<Map<number, number>> {
-  const listings = await fetchAllUserListings(client, username);
+  const listings = await fetchAllUserListings(client, username, profileId, pacing);
   const prices = new Map<number, number>();
   for (const [id, listing] of listings) {
     prices.set(id, listing.price);

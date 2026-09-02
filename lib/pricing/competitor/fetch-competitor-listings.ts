@@ -1,27 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { loadCompetitorSellers } from "@/lib/pricing/competitor/sellers";
+import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
 import { assertOlxAllowed } from "@/lib/olx/net-guard";
+import {
+  DEFAULT_PRICE_BUCKETS,
+  fetchPriceBucket,
+  type PriceRange,
+} from "@/lib/olx/price-buckets";
+import { generateBrowserIdentity } from "@/lib/profile/browser-identity";
+import { paginationForRun } from "@/lib/profile/pagination";
+import { loadCompetitorSellers } from "@/lib/pricing/competitor/sellers";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
 
 const SEARCH_BASE = "https://olx.ba/api/search";
-const PER_PAGE = 1000;
-const MAX_PAGE = 10;
-const ES_LIMIT = 10_000;
-const DELAY_MS = 120;
 const UPSERT_BATCH = 500;
+/** Anti-detekcija: bez fiksnog razmaka — jitter umjesto konstantnih 120 ms. */
+const DELAY_MIN_MS = 90;
+const DELAY_MAX_MS = 180;
 
-/** Price buckets to stay under ES 10k window. Last is open-ended. */
-export const PRICE_BUCKETS: Array<{ from: number; to: number | null }> = [
-  { from: 1, to: 50 },
-  { from: 50, to: 90 },
-  { from: 90, to: 130 },
-  { from: 130, to: 250 },
-  { from: 250, to: 800 },
-  { from: 800, to: null },
-];
+/** @deprecated Koristi DEFAULT_PRICE_BUCKETS iz lib/olx/price-buckets.ts. Ostaje radi kompatibilnosti postojećeg re-exporta. */
+export const PRICE_BUCKETS = DEFAULT_PRICE_BUCKETS;
 
 type SearchAd = {
   id: number;
@@ -29,12 +29,6 @@ type SearchAd = {
   price: number | null;
   discounted_price: number | null;
   category_id: number | null;
-};
-
-type SearchPage = {
-  ads: SearchAd[];
-  total: number;
-  lastPage: number;
 };
 
 export type SyncCompetitorsResult = {
@@ -45,39 +39,34 @@ export type SyncCompetitorsResult = {
   errors: string[];
 };
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 async function fetchSearchPage(params: {
   userId: number;
-  priceFrom: number;
-  priceTo: number | null;
+  range: PriceRange;
   page: number;
-}): Promise<SearchPage> {
+  perPage: number;
+  headers: Record<string, string>;
+}): Promise<{ ads: SearchAd[]; total: number; lastPage: number }> {
   const qs = new URLSearchParams({
     attr: "",
     attr_encoded: "1",
     user_id: String(params.userId),
-    price_from: String(params.priceFrom),
-    per_page: String(PER_PAGE),
+    price_from: String(params.range.from),
+    per_page: String(params.perPage),
     state: "1",
     page: String(params.page),
     sort_by: "price",
     sort_order: "asc",
   });
-  if (params.priceTo != null) {
-    qs.set("price_to", String(params.priceTo));
+  if (params.range.to != null) {
+    qs.set("price_to", String(params.range.to));
   }
 
-  const res = await fetch(`${SEARCH_BASE}?${qs}`, {
-    headers: { Accept: "application/json" },
-  });
+  const res = await fetch(`${SEARCH_BASE}?${qs}`, { headers: params.headers });
 
   if (!res.ok) {
     throw new Error(
       `OLX search HTTP ${res.status} user=${params.userId} ` +
-        `price=${params.priceFrom}-${params.priceTo ?? "+"} page=${params.page}`,
+        `price=${params.range.from}-${params.range.to ?? "+"} page=${params.page}`,
     );
   }
 
@@ -115,57 +104,6 @@ async function fetchSearchPage(params: {
   };
 }
 
-async function fetchBucket(
-  userId: number,
-  priceFrom: number,
-  priceTo: number | null,
-  into: Map<number, SearchAd>,
-  stats: { bucketsSplit: number },
-): Promise<void> {
-  const first = await fetchSearchPage({
-    userId,
-    priceFrom,
-    priceTo,
-    page: 1,
-  });
-
-  // Auto-split if ES window would truncate results.
-  if (
-    first.total > ES_LIMIT &&
-    priceTo != null &&
-    priceTo - priceFrom > 1
-  ) {
-    stats.bucketsSplit++;
-    const mid = Math.floor((priceFrom + priceTo) / 2);
-    console.log(
-      `  Split bucket ${priceFrom}-${priceTo} (total=${first.total}) → ${priceFrom}-${mid}, ${mid}-${priceTo}`,
-    );
-    await fetchBucket(userId, priceFrom, mid, into, stats);
-    await sleep(DELAY_MS);
-    await fetchBucket(userId, mid, priceTo, into, stats);
-    return;
-  }
-
-  for (const ad of first.ads) into.set(ad.id, ad);
-
-  const lastPage = Math.min(first.lastPage, MAX_PAGE);
-  for (let page = 2; page <= lastPage; page++) {
-    await sleep(DELAY_MS);
-    const { ads } = await fetchSearchPage({
-      userId,
-      priceFrom,
-      priceTo,
-      page,
-    });
-    if (ads.length === 0) break;
-    for (const ad of ads) into.set(ad.id, ad);
-  }
-
-  console.log(
-    `  Bucket ${priceFrom}-${priceTo ?? "+"}: total=${first.total}, collected=${into.size}`,
-  );
-}
-
 async function upsertBatch(
   admin: Admin,
   rows: Database["public"]["Tables"]["competitor_listings"]["Insert"][],
@@ -178,6 +116,21 @@ async function upsertBatch(
     throw new Error(`Upsert competitor_listings: ${error.message}`);
   }
   return rows.length;
+}
+
+/** Headeri za javni search — koherentan set generisan jednom po run-u (nije vezano za profil). */
+function buildRunHeaders(seed: string): Record<string, string> {
+  const identity = generateBrowserIdentity(seed);
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Accept-Language": identity.acceptLanguage,
+    "User-Agent": identity.userAgent,
+    "Accept-Encoding": "gzip, deflate, br",
+  };
+  if (identity.secChUa) headers["sec-ch-ua"] = identity.secChUa;
+  if (identity.secChUaMobile) headers["sec-ch-ua-mobile"] = identity.secChUaMobile;
+  if (identity.secChUaPlatform) headers["sec-ch-ua-platform"] = identity.secChUaPlatform;
+  return headers;
 }
 
 /**
@@ -209,13 +162,16 @@ export async function syncCompetitorListings(
     .gte("olx_listing_id", 0);
 
   if (truncError) {
-    // Fallback: delete all via filter that matches everything
     throw new Error(
       `Brisanje competitor_listings nije uspjelo: ${truncError.message}`,
     );
   }
 
   const fetchedAt = new Date().toISOString();
+  // Anti-detekcija: per_page i browser identitet se biraju jednom po run-u
+  // (ovo je globalan job, nije vezan za jedan profil).
+  const { perPage, maxPage } = paginationForRun();
+  const headers = buildRunHeaders(`competitor-run:${fetchedAt}`);
 
   for (const seller of sellers) {
     console.log(
@@ -223,19 +179,38 @@ export async function syncCompetitorListings(
     );
     const byId = new Map<number, SearchAd>();
 
-    for (const bucket of PRICE_BUCKETS) {
+    for (const range of DEFAULT_PRICE_BUCKETS) {
       try {
-        await fetchBucket(
-          seller.olx_user_id,
-          bucket.from,
-          bucket.to,
-          byId,
-          result,
-        );
-        await sleep(DELAY_MS);
+        await fetchPriceBucket(range, byId, {
+          maxPage,
+          delay: () => sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS)),
+          getId: (ad) => ad.id,
+          fetchPage: async (r, page) => {
+            const { ads, total, lastPage } = await fetchSearchPage({
+              userId: seller.olx_user_id,
+              range: r,
+              page,
+              perPage,
+              headers,
+            });
+            return { items: ads, total, lastPage };
+          },
+          onBucketSplit: (splitRange, mid, total) => {
+            result.bucketsSplit++;
+            console.log(
+              `  Split bucket ${splitRange.from}-${splitRange.to} (total=${total}) → ${splitRange.from}-${mid}, ${mid}-${splitRange.to}`,
+            );
+          },
+          onBucketDone: (doneRange, info) => {
+            console.log(
+              `  Bucket ${doneRange.from}-${doneRange.to ?? "+"}: total=${info.total}, collected=${info.collectedSoFar}`,
+            );
+          },
+        });
+        await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        result.errors.push(`${seller.name} ${bucket.from}-${bucket.to}: ${msg}`);
+        result.errors.push(`${seller.name} ${range.from}-${range.to}: ${msg}`);
         console.error(msg);
       }
     }
@@ -262,9 +237,7 @@ export async function syncCompetitorListings(
       result.upserted += await upsertBatch(admin, chunk);
     }
 
-    console.log(
-      `  ${seller.name}: upserted ${byId.size} listings`,
-    );
+    console.log(`  ${seller.name}: upserted ${byId.size} listings`);
   }
 
   return result;

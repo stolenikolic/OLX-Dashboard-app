@@ -23,6 +23,7 @@
     "job:manual-action": "tsx scripts/job-manual-action.ts",
     "job:maintenance-scheduler": "tsx scripts/job-maintenance-scheduler.ts",
     "job:backfill-anti-correlation": "tsx scripts/backfill-anti-correlation.ts",
+    "job:probe-olx-user-listings": "tsx scripts/probe-olx-user-listings.ts",
     "seed:test-profiles": "tsx --env-file=.env.local scripts/seed-test-profiles.ts"
   },
   "dependencies": {

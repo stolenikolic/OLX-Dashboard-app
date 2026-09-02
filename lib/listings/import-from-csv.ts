@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllUserListingPrices } from "@/lib/listings/fetch-user-listings";
 import { parseMappingCsv } from "@/lib/listings/parse-mapping-csv";
 import type { OlxClient } from "@/lib/olx/client";
+import { loadPacingForProfile } from "@/lib/workers/job-pacing";
 import type { Database } from "@/types/database";
 
 type Admin = SupabaseClient<Database>;
@@ -161,7 +162,8 @@ export async function importListingsFromCsv(
   let olxPrices: Map<number, number> | null = null;
   if (client) {
     console.log("Povlačenje OLX oglasa profila…");
-    olxPrices = await fetchAllUserListingPrices(client, username);
+    const pacing = await loadPacingForProfile(admin, profileId, "import_listings");
+    olxPrices = await fetchAllUserListingPrices(client, username, profileId, pacing);
     console.log(`OLX oglasa na profilu: ${olxPrices.size}`);
   } else {
     console.log("CSV import bez OLX verifikacije (verify_import ide preko GHA).");
