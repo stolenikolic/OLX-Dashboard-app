@@ -1,6 +1,13 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { randomDelayMs, sleep } from "@/lib/listings/post-queue";
 import type { OlxClient } from "@/lib/olx/client";
 import type { OlxUserListing } from "@/lib/olx/types";
+import { paginationForProfile } from "@/lib/profile/pagination";
+import { appendJobLog } from "@/lib/workers/job-log";
+import type { Database, Json } from "@/types/database";
+
+type Admin = SupabaseClient<Database>;
 
 export type AuthedOlxListing = {
   id: number;
@@ -13,30 +20,40 @@ export type AuthedOlxListing = {
   date: number | null;
 };
 
-const PER_PAGE = 1000;
-/** Elasticsearch-style max_result_window — page*per_page beyond ~10k returns 500. */
-const MAX_SAFE_PAGE = 10;
-const DELAY_MIN_MS = 300;
-const DELAY_MAX_MS = 800;
+/**
+ * NAPOMENA (probe 2026-09-02, scripts/probe-olx-user-listings.ts na GHA):
+ * `/users/:username/listings` NE poštuje `price_from`/`price_to` ni
+ * `selected_category` — oba parametra su tiho ignorisana (identičan
+ * neisfiltriran total i identičan skup redova bez obzira na filter,
+ * potvrđeno na nalogu sa 17.362 oglasa razbacanih kroz 20+ kategorija).
+ * `page × per_page > 10.000` vraća HTTP 500 (potvrđena ES window granica).
+ *
+ * Zato — za razliku od javnog search API-ja (lib/olx/search-user-listings.ts)
+ * — particionisanje preko cjenovnih pragova/kategorija NIJE moguće na ovom
+ * endpointu. Ostaje desc+asc obilazak (plafon ~20k po nalogu). Ako OLX u
+ * budućnosti popravi ova dva parametra, probe skriptu treba ponovo pokrenuti
+ * prije nego se ovdje uvede bucket particionisanje.
+ */
+const ES_LIMIT = 10_000;
 
 /**
  * Povlači sve aktivne oglase preko autentifikovanog
  * `/users/:username/listings` (uključuje `refresh_available`).
  *
- * Koristi desc + asc (kao search) jer OLX lomi nakon ~10k offseta.
+ * Koristi desc + asc jer OLX vraća HTTP 500 nakon ~10k offseta, a filter po
+ * cijeni/kategoriji ovaj endpoint ne podržava (vidi napomenu iznad).
  */
 export async function fetchAllUserListingsAuthed(
   client: OlxClient,
   username: string,
+  profileId: string,
+  pacing: { minMs: number; maxMs: number },
+  coverage?: { admin: Admin; jobRunId: string; profileName: string },
 ): Promise<Map<number, AuthedOlxListing>> {
+  const { perPage, maxPage } = paginationForProfile(profileId);
   const byId = new Map<number, AuthedOlxListing>();
 
-  const first = await client.getUserListingsAuthed(
-    username,
-    1,
-    PER_PAGE,
-    "desc",
-  );
+  const first = await client.getUserListingsAuthed(username, 1, perPage, "desc");
   const total = first.meta?.total ?? first.data.length;
 
   for (const row of first.data) {
@@ -46,18 +63,31 @@ export async function fetchAllUserListingsAuthed(
     `OLX authed [desc] page 1: +${first.data.length}, ukupno=${byId.size}/${total}`,
   );
 
-  await pullDirection(client, username, "desc", byId, total);
+  await pullDirection(client, username, "desc", byId, total, perPage, maxPage, pacing);
 
   if (byId.size < total) {
-    console.log(
-      `OLX authed: nedostaje ${total - byId.size} — reverse asc…`,
-    );
-    await pullDirection(client, username, "asc", byId, total);
+    console.log(`OLX authed: nedostaje ${total - byId.size} — reverse asc…`);
+    await pullDirection(client, username, "asc", byId, total, perPage, maxPage, pacing);
   }
 
-  if (byId.size < total) {
+  if (byId.size < total && total > ES_LIMIT * 2) {
+    // Cijeli nalog prelazi ~20k, desc+asc plafon — ovaj endpoint nema
+    // partitioning mehanizam (potvrđeno probe-om) da se to premosti.
+    const message =
+      `OLX authed nepotpun uvoz: prikupljeno ${byId.size}/${total} kod naloga koji ` +
+      `prelazi ~${ES_LIMIT * 2} (desc+asc plafon ovog endpointa). refresh_available ` +
+      `za nedostajuće oglase nije dostupan ovim putem.`;
+    console.warn(message);
+    if (coverage) {
+      await appendJobLog(coverage.admin, coverage.jobRunId, {
+        level: "warn",
+        message,
+        context: { collected: byId.size, total, profile: coverage.profileName } as Json,
+      });
+    }
+  } else if (byId.size < total) {
     console.warn(
-      `OLX authed: prikupljeno ${byId.size}/${total} (moguća razlika zbog ES window / brisanja).`,
+      `OLX authed: prikupljeno ${byId.size}/${total} (moguća razlika zbog brisanja oglasa tokom obilaska).`,
     );
   } else {
     console.log(`OLX authed: kompletno ${byId.size}/${total}`);
@@ -72,22 +102,20 @@ async function pullDirection(
   sortOrder: "asc" | "desc",
   byId: Map<number, AuthedOlxListing>,
   targetTotal: number,
+  perPage: number,
+  maxPage: number,
+  pacing: { minMs: number; maxMs: number },
 ): Promise<void> {
   const startPage = sortOrder === "desc" ? 2 : 1;
 
-  for (let page = startPage; page <= MAX_SAFE_PAGE; page++) {
+  for (let page = startPage; page <= maxPage; page++) {
     if (targetTotal > 0 && byId.size >= targetTotal) break;
 
-    await sleep(randomDelayMs(DELAY_MIN_MS, DELAY_MAX_MS));
+    await sleep(randomDelayMs(pacing.minMs, pacing.maxMs));
 
     let res;
     try {
-      res = await client.getUserListingsAuthed(
-        username,
-        page,
-        PER_PAGE,
-        sortOrder,
-      );
+      res = await client.getUserListingsAuthed(username, page, perPage, sortOrder);
     } catch (err) {
       console.warn(
         `OLX authed [${sortOrder}] page ${page} failed: ` +

@@ -7,7 +7,9 @@ name: post-listings
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Neokrugla minuta — anti-detekcija. getNextEligibleAt već ima jitter
+    # 0-19 min po danu, ali zaokruženje na cron tik ga je poništavalo.
+    - cron: "4,19,34,49 * * * *"
   workflow_dispatch:
     inputs:
       profile_id:

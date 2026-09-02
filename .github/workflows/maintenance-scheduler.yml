@@ -6,7 +6,8 @@ name: maintenance-scheduler
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Neokrugla minuta — anti-detekcija (ne startuje na :00/:30 kao ostatak interneta).
+    - cron: "13,43 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -20,7 +21,7 @@ concurrency:
 jobs:
   schedule:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

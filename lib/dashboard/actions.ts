@@ -26,6 +26,8 @@ import {
   parseScheduleTime,
 } from "@/lib/listings/post-schedule";
 import { loadProfileForWorker } from "@/lib/listings/profile-client";
+import { generateBrowserIdentity } from "@/lib/profile/browser-identity";
+import { generateDeviceName } from "@/lib/profile/identity";
 import { autoConfigureNewProfile } from "@/lib/workers/profile-auto-setup";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -616,6 +618,41 @@ export async function assignRandomPostScheduleAction(
   revalidatePath(`/profili/${profileId}/podesavanja`);
   revalidatePath("/");
   return time;
+}
+
+/**
+ * Forsira novi device_name/user_agent (anti-detekcija) — bira drugi
+ * template/verziju iz istog poola nego trenutni. Za razliku od
+ * ensureProfileIdentity (koja čuva postojeće valjane vrijednosti), ovo
+ * je explicit admin akcija pa uvijek regeneriše.
+ */
+export async function regenerateProfileIdentityAction(
+  profileId: string,
+): Promise<{ device_name: string; user_agent: string }> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: profile, error } = await admin
+    .from("profiles")
+    .select("id, name")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (error || !profile) {
+    throw new Error("Profil nije pronađen.");
+  }
+
+  const seed = `${profileId}:${crypto.randomUUID()}`;
+  const device_name = generateDeviceName(seed, profile.name);
+  const user_agent = generateBrowserIdentity(seed).userAgent;
+
+  const { error: updateError } = await admin
+    .from("profiles")
+    .update({ device_name, user_agent, updated_at: new Date().toISOString() })
+    .eq("id", profileId);
+  if (updateError) throw new Error(updateError.message);
+
+  revalidatePath(`/profili/${profileId}/podesavanja`);
+  return { device_name, user_agent };
 }
 
 export async function updateCategoryPriorityAction(

@@ -112,3 +112,66 @@ export function isLegacyUserAgent(
   if (/Chrome\/12\d\d\./.test(userAgent)) return true;
   return false;
 }
+
+type ParsedUserAgent = {
+  family: "chrome" | "edge" | "firefox" | "unknown";
+  version: number | null;
+  platform: "windows" | "macos" | null;
+};
+
+function parseUserAgent(userAgent: string): ParsedUserAgent {
+  const platform = userAgent.includes("Macintosh") ? "macos" : "windows";
+
+  const edgeMatch = userAgent.match(/Edg\/(\d+)/);
+  if (edgeMatch) {
+    return { family: "edge", version: Number(edgeMatch[1]), platform };
+  }
+  const chromeMatch = userAgent.match(/Chrome\/(\d+)/);
+  if (chromeMatch) {
+    return { family: "chrome", version: Number(chromeMatch[1]), platform };
+  }
+  const firefoxMatch = userAgent.match(/Firefox\/(\d+)/);
+  if (firefoxMatch) {
+    return { family: "firefox", version: Number(firefoxMatch[1]), platform };
+  }
+  return { family: "unknown", version: null, platform: null };
+}
+
+/**
+ * Rekonstruiše koherentan BrowserIdentity IZ već izabranog/perzistiranog
+ * User-Agent stringa (parsira brand+verziju), umjesto da generiše novi.
+ * Ovo je bitno za request-time headere: perzistirani `user_agent` (koji
+ * admin može regenerisati iz UI-a) je jedini source of truth — headeri se
+ * uvijek moraju slagati sa ONIM ŠTO JE TRENUTNO SAČUVANO, ne sa nekim
+ * nezavisnim hash-om profileId-a (koji se, za razliku od user_agent
+ * kolone, nikad ne mijenja i ne bi reagovao na "Regeneriši identitet").
+ */
+export function identityFromUserAgent(
+  userAgent: string,
+  langSeed: string,
+): BrowserIdentity {
+  const parsed = parseUserAgent(userAgent);
+  const acceptLanguage =
+    ACCEPT_LANGUAGES[fnv1a(`ua-lang:${langSeed}`) % ACCEPT_LANGUAGES.length]!;
+
+  if (parsed.family === "firefox" || parsed.family === "unknown") {
+    return {
+      userAgent,
+      secChUa: null,
+      secChUaMobile: null,
+      secChUaPlatform: null,
+      acceptLanguage,
+    };
+  }
+
+  const version = parsed.version ?? CHROME_VERSIONS[CHROME_VERSIONS.length - 1];
+  const brandName = parsed.family === "edge" ? "Microsoft Edge" : "Google Chrome";
+
+  return {
+    userAgent,
+    secChUa: `"Not)A;Brand";v="99", "${brandName}";v="${version}", "Chromium";v="${version}"`,
+    secChUaMobile: "?0",
+    secChUaPlatform: parsed.platform === "macos" ? `"macOS"` : `"Windows"`,
+    acceptLanguage,
+  };
+}

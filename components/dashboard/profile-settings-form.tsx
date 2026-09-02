@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 
 import {
   assignRandomPostScheduleAction,
+  regenerateProfileIdentityAction,
   updateProfileSettingsAction,
 } from "@/lib/dashboard/actions";
 import {
@@ -93,6 +94,8 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
   const [jobsEnabled, setJobsEnabled] = useState<JobsEnabledMap>(() =>
     parseJobsEnabled(profile.jobs_enabled),
   );
+  const [deviceName, setDeviceName] = useState(profile.device_name ?? "");
+  const [userAgent, setUserAgent] = useState(profile.user_agent ?? "");
 
   const nextEligible = getNextEligibleAt(
     {
@@ -143,6 +146,19 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
         const time = await assignRandomPostScheduleAction(profile.id);
         setScheduleTime(formatScheduleTime(time) ?? "");
         setMessage(`Dodijeljen termin ${formatScheduleTime(time)}.`);
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : "Greška");
+      }
+    });
+  }
+
+  function onRegenerateIdentity() {
+    startTransition(async () => {
+      try {
+        const result = await regenerateProfileIdentityAction(profile.id);
+        setDeviceName(result.device_name);
+        setUserAgent(result.user_agent);
+        setMessage("Identitet regenerisan.");
       } catch (err) {
         setMessage(err instanceof Error ? err.message : "Greška");
       }
@@ -463,6 +479,35 @@ export function ProfileSettingsForm({ profile }: { profile: Profile }) {
             className="mt-1 w-full rounded-lg border px-3 py-2"
           />
         </label>
+
+        <div className="space-y-3 rounded-lg border border-zinc-100 bg-zinc-50 p-4">
+          <h3 className="text-sm font-medium text-zinc-800">
+            Browser identitet (anti-detekcija)
+          </h3>
+          <p className="text-xs text-zinc-500">
+            Koherentan device_name/User-Agent po profilu — što se manje
+            poklapa sa drugim profilima, to je bolje. Regenerišuj samo ako je
+            potrebno (npr. nakon migracije sa starog/nevažećeg identiteta).
+          </p>
+          <dl className="grid gap-2 text-sm text-zinc-600">
+            <div>
+              <dt className="text-zinc-500">device_name</dt>
+              <dd className="break-all font-mono text-xs">{deviceName || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-zinc-500">User-Agent</dt>
+              <dd className="break-all font-mono text-xs">{userAgent || "—"}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onRegenerateIdentity}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Regeneriši identitet
+          </button>
+        </div>
       </section>
 
       <button

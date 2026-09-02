@@ -5,7 +5,7 @@ import { assertOlxAllowed } from "@/lib/olx/net-guard";
 import { notifyAdmin } from "@/lib/notify/email";
 import { maybeResumeProfile } from "@/lib/olx/suspension";
 import {
-  generateBrowserIdentity,
+  identityFromUserAgent,
   type BrowserIdentity,
 } from "@/lib/profile/browser-identity";
 import { ensureProfileIdentity } from "@/lib/profile/identity";
@@ -229,9 +229,10 @@ export async function createClientForProfile(
     profile.user_agent,
   );
   await persistProfileIdentity(admin, profile, identity);
-  // Client Hints (sec-ch-ua, jezik) se ne perzistiraju u bazi — deterministički
-  // se izvode iz profile.id, pa su uvijek dosljedni sa perzistiranim user_agent.
-  const browserIdentity = generateBrowserIdentity(profile.id);
+  // Client Hints (sec-ch-ua, jezik) se ne perzistiraju u bazi — parsiraju se
+  // iz TRENUTNO sačuvanog user_agent (source of truth), tako da "Regeneriši
+  // identitet" iz UI-a odmah promijeni i headere, ne samo prikaz.
+  const browserIdentity = identityFromUserAgent(identity.user_agent, profile.id);
 
   if (profile.auth_method === "client_token") {
     if (!profile.olx_client_id || !profile.olx_client_token_enc) {

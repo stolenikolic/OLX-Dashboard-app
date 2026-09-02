@@ -11,6 +11,14 @@ import {
 } from "@/lib/workers/job-schedule";
 import { listActiveProfiles } from "@/lib/workers/profile";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function randomMs(minMs: number, maxMs: number): number {
+  return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
+}
+
 async function main() {
   const admin = createJobAdminClient();
   const now = new Date();
@@ -19,6 +27,14 @@ async function main() {
   const reaped = await reapStaleJobRuns(admin);
   if (reaped > 0) {
     console.log(`Zatvoreno ${reaped} zaglavljenih job_runs.`);
+  }
+
+  // Anti-detekcija: ne kreni tačno na cron tik — random pauza 0-300s prije
+  // prve provjere, da dispatch-evi različitih profila ne startuju u istoj sekundi.
+  const startupDelay = randomMs(0, 300_000);
+  if (startupDelay > 0) {
+    console.log(`Startup jitter: ${Math.round(startupDelay / 1000)}s…`);
+    await sleep(startupDelay);
   }
 
   for (const job of SCHEDULE_JOBS) {
@@ -50,6 +66,15 @@ async function main() {
       const workflow = SCHEDULE_TO_WORKFLOW[job];
       const inputs: Record<string, string> = { profile_id: row.id };
       if (job === "refresh_prices") inputs.force = "true";
+      // Anti-detekcija: stagger PRIJE svakog dispatcha osim prvog u ovom runu —
+      // dva profila ne kreću istom sekundom prema OLX-u. Nema čekanja nakon
+      // posljednjeg dispatcha (ne troši uzalud GHA minute).
+      if (dispatched.length > 0) {
+        const stagger = randomMs(45_000, 200_000);
+        console.log(`Stagger pauza: ${Math.round(stagger / 1000)}s…`);
+        await sleep(stagger);
+      }
+
       const result = await dispatchGitHubWorkflow(workflow, inputs);
       if (!result.ok) {
         console.error(`Dispatch ${workflow} ${row.id}: ${result.message}`);
